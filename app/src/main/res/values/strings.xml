@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">MobileD</string>
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="this_page_is_under_development">This page is under development</string>
+</resources>

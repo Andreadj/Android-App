@@ -1,0 +1,203 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 5,
+    "identityHash": "222603a8f13085b9b3e806b51f6451ee",
+    "entities": [
+      {
+        "tableName": "hardware_device",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rowId` INTEGER PRIMARY KEY AUTOINCREMENT, `ApName` TEXT, `devName` TEXT, `ip` TEXT, `port` INTEGER NOT NULL, `dMXAddress` INTEGER NOT NULL, `nProt` TEXT, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "rowId",
+            "columnName": "rowId",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ApName",
+            "columnName": "ApName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "devName",
+            "columnName": "devName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "ip",
+            "columnName": "ip",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "port",
+            "columnName": "port",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dMXAddress",
+            "columnName": "dMXAddress",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nProt",
+            "columnName": "nProt",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "columnNames": [
+            "rowId"
+          ],
+          "autoGenerate": true
+        },
+        "indices": [
+          {
+            "name": "index_hardware_device_ApName",
+            "unique": true,
+            "columnNames": [
+              "ApName"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_hardware_device_ApName` ON `${TABLE_NAME}` (`ApName`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "HardwareGroupItem",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gItemRowId` INTEGER PRIMARY KEY AUTOINCREMENT, `groupId` INTEGER, `rowId` INTEGER, `ApName` TEXT, `devName` TEXT, `ip` TEXT, `port` INTEGER, `dMXAddress` INTEGER, `nProt` TEXT, `createdAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "gItemRowId",
+            "columnName": "gItemRowId",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.rowId",
+            "columnName": "rowId",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.ApName",
+            "columnName": "ApName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.devName",
+            "columnName": "devName",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.ip",
+            "columnName": "ip",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.port",
+            "columnName": "port",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.dMXAddress",
+            "columnName": "dMXAddress",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.nProt",
+            "columnName": "nProt",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "hardwareDevice.createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "columnNames": [
+            "gItemRowId"
+          ],
+          "autoGenerate": true
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "HardwareGroup",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`rowId` INTEGER PRIMARY KEY AUTOINCREMENT, `groupTitle` TEXT NOT NULL DEFAULT '', `all_devices` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "rowId",
+            "columnName": "rowId",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "groupTitle",
+            "columnName": "groupTitle",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "allDevices",
+            "columnName": "all_devices",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "columnNames": [
+            "rowId"
+          ],
+          "autoGenerate": true
+        },
+        "indices": [
+          {
+            "name": "index_HardwareGroup_groupTitle",
+            "unique": true,
+            "columnNames": [
+              "groupTitle"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_HardwareGroup_groupTitle` ON `${TABLE_NAME}` (`groupTitle`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '222603a8f13085b9b3e806b51f6451ee')"
+    ]
+  }
+}

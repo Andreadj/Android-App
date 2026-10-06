@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:id="@+id/viewRoot"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/_1sdp"
+        android:background="#181818"
+        android:clipToPadding="false"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/_23sdp"
+        android:paddingTop="@dimen/_4sdp"
+        android:paddingEnd="@dimen/_10sdp"
+        android:paddingBottom="@dimen/_3sdp">
+
+        <ProgressBar
+            android:id="@+id/viewSyncState"
+            android:layout_width="@dimen/_15sdp"
+            android:layout_height="@dimen/_15sdp"
+            android:layout_gravity="center"
+            android:layout_margin="@dimen/_2sdp"
+            android:indeterminate="true" />
+
+        <LinearLayout
+            android:id="@+id/viewPart1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/_25sdp"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:id="@+id/ivDeviceStatus"
+                    android:layout_width="@dimen/_25sdp"
+                    android:layout_height="@dimen/_25sdp"
+                    android:layout_gravity="center"
+                    android:padding="@dimen/_1sdp"
+                    android:scaleType="centerInside"
+                    android:src="@drawable/group_device_default" />
+
+                <TextView
+                    android:id="@+id/tvDeviceType"
+                    android:layout_width="fill_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_marginStart="@dimen/_5sdp"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical"
+                    android:maxLines="1"
+                    android:textColor="@android:color/white"
+                    android:textSize="@dimen/_11sdp"
+                    tools:text="MobileD-102ssc02-555" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvDeviceName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/ivDeviceStatus"
+                android:padding="@dimen/_2sdp"
+                android:textColor="@color/grayTextColor"
+                android:textSize="@dimen/_8sdp"
+                tools:text="MobileD-102ssc02" />
+        </LinearLayout>
+
+        <Space
+            android:layout_width="@dimen/_5sdp"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:id="@+id/viewDeviceActionsRoot"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/view_led_state_root"
+                android:layout_width="@dimen/_25sdp"
+                android:layout_height="@dimen/_25sdp"
+                android:layout_marginStart="@dimen/_4sdp"
+                android:background="@drawable/ic_circle_border">
+
+                <!--                <View-->
+                <!--                    android:layout_gravity="center"-->
+                <!--                    android:background="@drawable/white_round"-->
+                <!--                    android:layout_width="@dimen/_20sdp"-->
+                <!--                    android:layout_height="@dimen/_20sdp"/>-->
+                <ImageView
+                    android:id="@+id/view_g_light_type"
+                    android:layout_width="@dimen/_20sdp"
+                    android:layout_height="@dimen/_20sdp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/eff_glight_none" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/viewBatteryRoot"
+                android:layout_width="@dimen/_25sdp"
+                android:layout_height="@dimen/_25sdp"
+                android:layout_marginStart="@dimen/_4sdp"
+                android:background="@drawable/ic_circle_border">
+
+                <ImageView
+                    android:id="@+id/ivChargeState"
+                    android:layout_width="@dimen/_20sdp"
+                    android:layout_height="@dimen/_20sdp"
+                    android:layout_gravity="center"
+                    android:padding="@dimen/_2sdp"
+                    android:src="@drawable/battery_status_10"
+                    app:tint="#00FF00" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/viewDeviceSwitchRoot"
+                android:layout_width="@dimen/_25sdp"
+                android:layout_height="@dimen/_25sdp"
+                android:layout_marginStart="@dimen/_4sdp"
+                android:background="@drawable/ic_circle_border">
+
+                <ImageView
+                    android:id="@+id/buttonChangeDeviceStatus"
+                    android:layout_width="@dimen/_20sdp"
+                    android:layout_height="@dimen/_20sdp"
+                    android:layout_gravity="center"
+                    android:padding="@dimen/_1sdp"
+                    android:src="@drawable/ic_device_switch_off" />
+            </FrameLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="@dimen/_50sdp"
+    android:layout_height="wrap_content"
+    android:layout_gravity="end|bottom"
+    android:orientation="vertical"
+    tools:showIn="@layout/fragment_color">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#FF0000"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="@dimen/_15sdp"
+            android:layout_height="@dimen/_15sdp"
+            android:background="#92000000"
+            android:gravity="center"
+            android:text="H"
+            android:textColor="@color/white" />
+
+        <TextView
+            android:id="@+id/viewH"
+            android:layout_width="@dimen/_25sdp"
+            android:layout_height="@dimen/_15sdp"
+            android:gravity="center"
+            android:text="255"
+            android:textColor="@color/white" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#00FF00"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="@dimen/_15sdp"
+            android:layout_height="@dimen/_15sdp"
+            android:background="#92000000"
+            android:gravity="center"
+            android:text="S"
+            android:textColor="@color/white" />
+
+        <TextView
+            android:id="@+id/viewS"
+            android:layout_width="@dimen/_25sdp"
+            android:layout_height="@dimen/_15sdp"
+            android:gravity="center"
+            android:text="255"
+            android:textColor="@color/white" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#0000FF"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="@dimen/_15sdp"
+            android:layout_height="@dimen/_15sdp"
+            android:background="#92000000"
+            android:gravity="center"
+            android:text="V"
+            android:textColor="@color/white" />
+
+        <TextView
+            android:id="@+id/viewV"
+            android:layout_width="@dimen/_25sdp"
+            android:layout_height="@dimen/_15sdp"
+            android:gravity="center"
+            android:text="255"
+            android:textColor="@color/white" />
+    </LinearLayout>
+</LinearLayout>

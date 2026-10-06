@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/_70sdp"
+    android:layout_weight="1"
+    android:orientation="vertical"
+    tools:showIn="@layout/activity_controller">
+
+    <View
+        android:id="@+id/navItemRoot"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/_70sdp"
+        android:layout_centerInParent="true"
+        android:background="@drawable/ic_navigation_item_selected"
+        android:foreground="?attr/selectableItemBackground" />
+
+    <ImageView
+        android:id="@+id/navItemImage"
+        android:layout_width="@dimen/_20sdp"
+        android:layout_height="@dimen/_20sdp"
+        android:layout_centerHorizontal="true"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="@dimen/_22sdp"
+        android:src="@drawable/ic_menu_item_color_selected" />
+
+    <TextView
+        android:id="@+id/navItemText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/navItemImage"
+        android:layout_centerHorizontal="true"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="@dimen/_5sdp"
+        android:text="Color"
+        android:textColor="@color/navigation_item_selected"
+        android:textSize="@dimen/_12sdp" />
+</RelativeLayout>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+
+    <color name="primaryColor">#ffae00</color>
+    <color name="primaryLightColor">#ffae00</color>
+    <color name="primaryDarkColor">#c67f00</color>
+    <color name="secondaryColor">#273A5A</color>
+    <color name="secondaryLightColor">#6F8AB6</color>
+    <color name="secondaryDarkColor">#0D2959</color>
+    <color name="primaryTextColor">#000000</color>
+    <color name="secondaryTextColor">#ffffff</color>
+
+    <color name="orange">#db971a</color>
+    <color name="red">#ffff4444</color>
+    <color name="back">#000000</color>
+    <color name="gray1">#B8B8B8</color>
+
+
+    <color name="colorRecieveText">#00FF00</color>
+    <color name="colorSendText">#82CAFF</color>
+    <color name="colorStatusText">#FFDB58</color>
+    <color name="navigation_item_selected">#000000</color>
+    <color name="navigation_item_default">#7B7B7B</color>
+    <color name="transparent">#00000000</color>
+    <color name="darkColor">#181818</color>
+    <color name="grayTextColor">#666666</color>
+    <color name="raisin_black">#202020</color>
+
+
+    <!--<color name="mtrl_textinput_default_box_stroke_color" tools:override="true">#FF494949</color>-->
+
+</resources>

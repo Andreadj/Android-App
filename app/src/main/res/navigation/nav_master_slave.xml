@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/nav_master_slave.xml"
+    app:startDestination="@id/nav_master_list">
+
+    <fragment
+        android:id="@+id/nav_master_list"
+        tools:layout="@layout/fragment_master_device_list"
+        android:name="com.mobiled.android.ui.group.MasterDeviceListFragment"
+        android:label="MasterDeviceListFragment" >
+        <action
+            android:id="@+id/action_to_nav_slave_list"
+            app:enterAnim="@android:anim/slide_in_left"
+            app:exitAnim="@android:anim/slide_out_right"
+            app:destination="@id/nav_slave_list" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/nav_slave_list"
+        tools:layout="@layout/fragment_slave_device_list"
+        android:name="com.mobiled.android.ui.group.SlaveDeviceListFragment"
+        android:label="SlaveDeviceListFragment" />
+
+
+
+</navigation>

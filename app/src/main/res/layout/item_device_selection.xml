@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/_35sdp"
+    android:layout_marginTop="@dimen/_2sdp"
+    android:background="@color/darkColor">
+
+    <TextView
+        android:id="@+id/textDeviceName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:layout_marginStart="@dimen/_15sdp"
+        android:layout_marginEnd="@dimen/_50sdp"
+        android:padding="@dimen/_5sdp"
+        android:text="TextView"
+        android:textColor="@color/grayTextColor"
+        android:textSize="@dimen/_12sdp" />
+
+
+    <CheckBox
+        android:id="@+id/selectionView"
+        android:layout_width="@dimen/_35sdp"
+        android:layout_height="@dimen/_35sdp"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="@dimen/_15sdp"
+        android:checked="false"
+        android:gravity="center" />
+</FrameLayout>

@@ -1,0 +1,16 @@
+*.iml
+.gradle
+/local.properties
+/.idea/*
+/.idea/deploymentTargetDropDown.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/.idea/
+
+# Android signing / private keys
+Keystore/
+private_key.pepk
