@@ -30,24 +30,27 @@ class HardwareGroupItem : Serializable {
     @SerializedName("GState")
     var GState: String = "X"
 
+    /** Physical position of this MobileD in a distributed Matrix/Music strip. */
+    @ColumnInfo(defaultValue = "0")
+    @SerializedName("PixelID")
+    var PixelID: Int = 0
+
     @Ignore
     var selected = false
 
     @Embedded
     var hardwareDevice: HardwareDevice? = null
+
     override fun toString(): String {
-        return "HardwareGroupItem(gItemRowId=$gItemRowId, groupId=$groupId, selected=$selected, Gport=$Gport, GState=$GState, hardwareDevice=$hardwareDevice})"
+        return "HardwareGroupItem(gItemRowId=$gItemRowId, groupId=$groupId, selected=$selected, Gport=$Gport, GState=$GState, PixelID=$PixelID, hardwareDevice=$hardwareDevice)"
     }
 
     fun fromCursor(cursor: Cursor) {
-        //[gItemRowId, groupId, Gport, rowId, ApName, devName, ip, port, dMXAddress, nProt, createdAt]
         gItemRowId = cursor.getLong(cursor.getColumnIndexOrThrow("gItemRowId"))
         groupId = cursor.getLong(cursor.getColumnIndexOrThrow("groupId"))
         Gport = cursor.getString(cursor.getColumnIndexOrThrow("Gport"))
-
-        if(cursor.getColumnIndex("GState")!=-1) {
-            GState = cursor.getString(cursor.getColumnIndexOrThrow("GState"))
-        }
+        if (cursor.getColumnIndex("GState") != -1) GState = cursor.getString(cursor.getColumnIndexOrThrow("GState"))
+        if (cursor.getColumnIndex("PixelID") != -1) PixelID = cursor.getInt(cursor.getColumnIndexOrThrow("PixelID"))
 
         val hardwareDevice = HardwareDevice()
         hardwareDevice.rowId = cursor.getLong(cursor.getColumnIndexOrThrow("rowId"))
@@ -58,27 +61,24 @@ class HardwareGroupItem : Serializable {
         hardwareDevice.dMXAddress = cursor.getLong(cursor.getColumnIndexOrThrow("dMXAddress"))
         hardwareDevice.nProt = cursor.getString(cursor.getColumnIndexOrThrow("nProt"))
         hardwareDevice.createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("createdAt"))
-
         this.hardwareDevice = hardwareDevice
     }
 
-
-    fun toContentValues() : ContentValues {
-        var contentValues = ContentValues()
-        contentValues.put("gItemRowId", gItemRowId);
-        contentValues.put("groupId", groupId);
-        contentValues.put("Gport", Gport);
-        contentValues.put("GState", GState);
-
-        contentValues.put("rowId", hardwareDevice?.rowId);
-        contentValues.put("ApName", hardwareDevice?.ApName);
-        contentValues.put("devName", hardwareDevice?.devName);
-        contentValues.put("ip", hardwareDevice?.ip);
-        contentValues.put("port", hardwareDevice?.port);
-        contentValues.put("dMXAddress", hardwareDevice?.dMXAddress);
-        contentValues.put("nProt", hardwareDevice?.nProt);
-        contentValues.put("createdAt", hardwareDevice?.createdAt);
-
+    fun toContentValues(): ContentValues {
+        val contentValues = ContentValues()
+        contentValues.put("gItemRowId", gItemRowId)
+        contentValues.put("groupId", groupId)
+        contentValues.put("Gport", Gport)
+        contentValues.put("GState", GState)
+        contentValues.put("PixelID", PixelID)
+        contentValues.put("rowId", hardwareDevice?.rowId)
+        contentValues.put("ApName", hardwareDevice?.ApName)
+        contentValues.put("devName", hardwareDevice?.devName)
+        contentValues.put("ip", hardwareDevice?.ip)
+        contentValues.put("port", hardwareDevice?.port)
+        contentValues.put("dMXAddress", hardwareDevice?.dMXAddress)
+        contentValues.put("nProt", hardwareDevice?.nProt)
+        contentValues.put("createdAt", hardwareDevice?.createdAt)
         return contentValues
     }
 }

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "222603a8f13085b9b3e806b51f6451ee",
+    "identityHash": "a9f7d0fc13473e3ffd2f638b6797dfcd",
     "entities": [
       {
         "tableName": "hardware_device",
@@ -58,10 +58,10 @@
           }
         ],
         "primaryKey": {
+          "autoGenerate": true,
           "columnNames": [
             "rowId"
-          ],
-          "autoGenerate": true
+          ]
         },
         "indices": [
           {
@@ -78,7 +78,7 @@
       },
       {
         "tableName": "HardwareGroupItem",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gItemRowId` INTEGER PRIMARY KEY AUTOINCREMENT, `groupId` INTEGER, `rowId` INTEGER, `ApName` TEXT, `devName` TEXT, `ip` TEXT, `port` INTEGER, `dMXAddress` INTEGER, `nProt` TEXT, `createdAt` INTEGER)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`gItemRowId` INTEGER PRIMARY KEY AUTOINCREMENT, `groupId` INTEGER, `Gport` TEXT NOT NULL DEFAULT '8889', `GState` TEXT NOT NULL DEFAULT 'X', `PixelID` INTEGER NOT NULL DEFAULT 0, `rowId` INTEGER, `ApName` TEXT, `devName` TEXT, `ip` TEXT, `port` INTEGER, `dMXAddress` INTEGER, `nProt` TEXT, `createdAt` INTEGER)",
         "fields": [
           {
             "fieldPath": "gItemRowId",
@@ -91,6 +91,27 @@
             "columnName": "groupId",
             "affinity": "INTEGER",
             "notNull": false
+          },
+          {
+            "fieldPath": "Gport",
+            "columnName": "Gport",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'8889'"
+          },
+          {
+            "fieldPath": "GState",
+            "columnName": "GState",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'X'"
+          },
+          {
+            "fieldPath": "PixelID",
+            "columnName": "PixelID",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           },
           {
             "fieldPath": "hardwareDevice.rowId",
@@ -142,10 +163,10 @@
           }
         ],
         "primaryKey": {
+          "autoGenerate": true,
           "columnNames": [
             "gItemRowId"
-          ],
-          "autoGenerate": true
+          ]
         },
         "indices": [],
         "foreignKeys": []
@@ -175,10 +196,10 @@
           }
         ],
         "primaryKey": {
+          "autoGenerate": true,
           "columnNames": [
             "rowId"
-          ],
-          "autoGenerate": true
+          ]
         },
         "indices": [
           {
@@ -197,7 +218,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '222603a8f13085b9b3e806b51f6451ee')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a9f7d0fc13473e3ffd2f638b6797dfcd')"
     ]
   }
 }

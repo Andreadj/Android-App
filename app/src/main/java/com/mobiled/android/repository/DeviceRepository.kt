@@ -35,15 +35,41 @@ class DeviceRepository(context: Context) : BaseRepository(context) {
     }
 
     fun getGroupsAsync(): Resource<HardwareDeviceListResult> {
-        var data = HardwareDeviceListResult().apply {
-            value = appDatabase.getHardwareTable().getHardwareDevices().sortedBy { it.rowId }
-            var _groupList = appDatabase.getGroupTable().getHardwareGroups()
-            _groupList.forEach {
-                it.groupItems?.sortedBy { it.hardwareDevice?.rowId }
+        // Device membership is persistent. If the hardware_device table is missing
+        // rows but group items still contain the saved device data, restore only
+        // those missing rows. Explicit Remove Device / Remove Devices removes the
+        // corresponding group items as well, so an explicitly removed device is
+        // never recreated here.
+        var devices = appDatabase.getHardwareTable().getHardwareDevices().toMutableList()
+        val existingApNames = devices.mapNotNull { it.ApName }.toMutableSet()
+        val groups = appDatabase.getGroupTable().getHardwareGroups()
+
+        groups.flatMap { it.groupItems.orEmpty() }
+            .mapNotNull { it.hardwareDevice }
+            .forEach { savedDevice ->
+                val apName = savedDevice.ApName ?: return@forEach
+                if (!existingApNames.contains(apName)) {
+                    val id = appDatabase.getHardwareTable().insert(savedDevice)
+                    if (id != -1L) {
+                        if (savedDevice.rowId == null || savedDevice.rowId == 0L) {
+                            savedDevice.rowId = id
+                        }
+                        devices.add(savedDevice)
+                        existingApNames.add(apName)
+                    }
+                }
             }
-            groupList = _groupList
+
+        val finalDevices = appDatabase.getHardwareTable().getHardwareDevices().sortedBy { it.rowId }
+        val finalGroups = appDatabase.getGroupTable().getHardwareGroups()
+        finalGroups.forEach { group ->
+            group.groupItems = group.groupItems?.sortedBy { it.hardwareDevice?.rowId }
         }
-        return Success<HardwareDeviceListResult>(data)
+
+        return Success<HardwareDeviceListResult>(HardwareDeviceListResult().also {
+            it.value = finalDevices
+            it.groupList = finalGroups
+        })
     }
 
     fun deleteDevices() {

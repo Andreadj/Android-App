@@ -103,8 +103,10 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                     device.applyPreviousFrame("")
                     device.applyPreviousFrame("")
                     mainHandler?.post(syncStateRunnable)
-                    mainHandler?.post { viewBinding.viewSyncState.visibility = View.GONE }
-                    viewBinding.ivDeviceStatus.setImageResource(R.drawable.mobile_d_device_default)
+                    mainHandler?.post {
+                        viewBinding.viewSyncState.visibility = View.GONE
+                        viewBinding.ivDeviceStatus.setImageResource(R.drawable.mobile_d_device_default)
+                    }
                 }
             }
 
@@ -214,6 +216,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                         viewBinding.ivDeviceStatus.setImageResource(R.drawable.group_device_default)
                         holder.setDeviceNames(hardwareGroup)
                     }
+
                 }
 
             })
@@ -410,16 +413,19 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
 //            groupItems.forEach {
 //                it.hardwareDevice?.let { processChanges(it) }
 //            }
-            val anyDeviceActive =
-                groupItems.any { it.hardwareDevice?.deviceFrame?.isNotEmpty() == true }
-            val allDevicesActive =
-                groupItems.all { it.hardwareDevice?.deviceFrame?.isNotEmpty() == true }
+            val onlineItems = groupItems.filter {
+                it.hardwareDevice?.deviceFrame?.isNotBlank() == true
+            }
+            val anyDeviceActive = onlineItems.isNotEmpty()
+            val allDevicesActive = onlineItems.size == groupItems.size
 
             hardwareGroup.isDevicesActive = allDevicesActive
             hardwareGroup.isAnyDeviceActive = anyDeviceActive
 
             if (anyDeviceActive) {
-                val initialFrame = JSONObject(hardwareGroup.getFrame() ?: "{}")
+                val initialFrame = JSONObject(
+                    onlineItems.first().hardwareDevice?.deviceFrame ?: "{}"
+                )
                 val initialCommand = initialFrame.optInt("Command", 0)
                 var allCommandsSame = true
                 var allColorsSame = true
@@ -428,6 +434,9 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
 
                 groupItems.forEach { item ->
                     item.hardwareDevice?.let { processChanges(it, false) }
+                }
+
+                onlineItems.forEach { item ->
                     item.hardwareDevice?.deviceFrame?.let { frame ->
                         try {
                             val jsonObject = JSONObject(frame)
@@ -447,7 +456,6 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                     }
                 }
 
-
                 hardwareGroup.isDevicesOn = allCommandsSame && initialCommand == 1
                 hardwareGroup.OnOffStatusSame = allCommandsSame
                 hardwareGroup.colorLedStatusSame = allColorsSame
@@ -463,8 +471,11 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                     viewBinding.viewDeviceSwitchRoot.visibility = View.VISIBLE
                 }
             } else {
+                hardwareGroup.isDevicesOn = false
                 hardwareGroup.OnOffStatusSame = false
                 hardwareGroup.colorLedStatusSame = false
+                viewBinding.viewLedStateRoot.visibility = View.GONE
+                viewBinding.viewDeviceSwitchRoot.visibility = View.GONE
             }
         }
 
@@ -553,16 +564,24 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         }
 
         fun setDeviceNames(hardwareGroup: HardwareGroup) {
-            val deviceNames =
-                hardwareGroup.groupItems?.joinToString(",") { it.hardwareDevice?.devName.orEmpty() }
-                    .orEmpty()
+            // All Devices historically hides MobileD units that are currently offline.
+            // Other groups keep their offline members visible (gray) so the group
+            // membership remains clear. The connection callback below calls this
+            // method again when a device changes state.
+            // Device membership is persistent. Offline devices must remain visible;
+            // only their connection/state presentation changes.
+            val visibleItems = hardwareGroup.groupItems.orEmpty()
+            val deviceNames = visibleItems.joinToString(",") { it.hardwareDevice?.devName.orEmpty() }
             val spannable = SpannableString(deviceNames)
 
             var startIndex = 0
-            hardwareGroup.groupItems?.forEach { item ->
+            visibleItems.forEach { item ->
                 val deviceName = item.hardwareDevice?.devName.orEmpty()
+                val isOnline = item.hardwareDevice?.deviceFrame?.isNotBlank() == true
                 val color =
-                    if (item.GState == "M") Color.RED else if (item.hardwareDevice?.deviceFrame?.isNotEmpty() == true) Color.GREEN else Color.GRAY
+                    if (!isOnline) Color.GRAY
+                    else if (item.GState == "M") Color.RED
+                    else Color.GREEN
 
                 spannable.setSpan(
                     ForegroundColorSpan(color),
@@ -571,7 +590,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
 
-                if (item.GState == "M") {
+                if (isOnline && item.GState == "M") {
                     spannable.setSpan(
                         UnderlineSpan(),
                         startIndex,

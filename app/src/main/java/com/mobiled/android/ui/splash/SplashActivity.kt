@@ -1,6 +1,7 @@
 package com.mobiled.android.ui.splash
 
 import android.Manifest.permission
+import android.app.Activity
 import android.content.DialogInterface
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -12,6 +13,7 @@ import android.provider.Settings
 import com.mobiled.android.LogSystem
 import androidx.activity.result.contract.ActivityResultContracts
 import com.mobiled.android.BuildConfig
+import com.mobiled.android.MobiLedApp
 import com.mobiled.android.base.AppConfiguration
 import com.mobiled.android.base.comman.LogSocketManager
 import com.mobiled.android.base.comman.LogSocketManager.LogSocketState
@@ -25,37 +27,30 @@ class SplashActivity : com.mobiled.android.base.BaseActivity<ActivitySplashBindi
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         binding.viewBuildNumber.setText("v${BuildConfig.VERSION_NAME}")
     }
 
     var permissionRequestContact =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             if (hasPermissions()) {
-                startActivity(Intent(this@SplashActivity, HomeActivity::class.java))
-                finish()
+                launchHome()
             } else {
                 showPermissionDenied()
             }
         }
 
     private fun showPermissionDenied() {
-
-        var positiveListener = DialogInterface.OnClickListener { dialog, _ ->
+        val positiveListener = DialogInterface.OnClickListener { dialog, _ ->
             dialog?.dismiss()
             val intent = Intent(
                 Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.fromParts(
-                    "package",
-                    applicationContext.packageName,
-                    null
-                )
+                Uri.fromParts("package", applicationContext.packageName, null)
             )
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
         }
 
-        var negativeListener = DialogInterface.OnClickListener { dialog, _ ->
+        val negativeListener = DialogInterface.OnClickListener { dialog, _ ->
             dialog?.dismiss()
             finish()
         }
@@ -74,7 +69,8 @@ class SplashActivity : com.mobiled.android.base.BaseActivity<ActivitySplashBindi
     private fun hasPermissions(): Boolean {
         permissionList = arrayOf(
             permission.ACCESS_COARSE_LOCATION, permission.ACCESS_FINE_LOCATION,
-            permission.ACCESS_WIFI_STATE, permission.CHANGE_WIFI_STATE
+            permission.ACCESS_WIFI_STATE, permission.CHANGE_WIFI_STATE,
+            permission.RECORD_AUDIO
         )
 
         var permissionArray = ArrayList<String>()
@@ -89,23 +85,25 @@ class SplashActivity : com.mobiled.android.base.BaseActivity<ActivitySplashBindi
         return permissionArray.isEmpty()
     }
 
+    private fun launchHome() {
+        if (AppConfiguration.MASTER_SLAVE_DEBUG) {
+            startActivity(Intent(this@SplashActivity, MasterSlaveActivity::class.java).also {
+                it.putExtra("groupId", "3")
+            })
+        } else {
+            LogSystem.e("TAG", "Launching Main Page")
+            startActivity(Intent(this@SplashActivity, HomeActivity::class.java))
+        }
+        finish()
+        mainHandler.removeCallbacksAndMessages(null)
+    }
+
     override fun getActivityBinding(): ActivitySplashBinding =
         ActivitySplashBinding.inflate(layoutInflater)
 
     private var launchRunnable = Runnable {
         if (hasPermissions()) {
-            if (com.mobiled.android.base.AppConfiguration.MASTER_SLAVE_DEBUG) {
-                startActivity(Intent(
-                    this@SplashActivity, MasterSlaveActivity::class.java
-                ).also {
-                    it.putExtra("groupId", "3")
-                })
-            } else {
-                LogSystem.e("TAG", "Launching Main Page")
-                startActivity(Intent(this@SplashActivity, HomeActivity::class.java))
-            }
-            finish()
-            mainHandler.removeCallbacksAndMessages(null)
+            launchHome()
         } else {
             permissionRequestContact.launch(permissionList)
         }
@@ -118,11 +116,10 @@ class SplashActivity : com.mobiled.android.base.BaseActivity<ActivitySplashBindi
         handler?.removeCallbacksAndMessages(null)
         binding.root.post {
             handler = Handler(Looper.getMainLooper())
-            //KeyStorage.getKeyStorage(this@SplashActivity).clear()
             val exTime = System.currentTimeMillis()
             LogSocketManager.getSocketManager().connect {
                 LogSystem.d("TAG", "getSocketManager().connect ${it} isNotSafe : ${isNotSafe()}")
-                if(it == LogSocketState.CONNECTED || it == LogSocketState.ERROR) {
+                if (it == LogSocketState.CONNECTED || it == LogSocketState.ERROR) {
                     var delay = 3000 - (System.currentTimeMillis() - exTime)
                     if (delay < 0) delay = 100
                     handler?.removeCallbacksAndMessages(null)
@@ -134,13 +131,9 @@ class SplashActivity : com.mobiled.android.base.BaseActivity<ActivitySplashBindi
 
     override fun getViewModelObject(): SplashViewModel = SplashViewModel()
 
-    override fun registerObservers() {
+    override fun registerObservers() {}
 
-    }
-
-    override fun unregisterObservers() {
-
-    }
+    override fun unregisterObservers() {}
 
     override fun getFragmentContainerId(): Int = -1
 }

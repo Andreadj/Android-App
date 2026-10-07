@@ -1,80 +1,90 @@
 package com.mobiled.android.adapters
 
-import com.mobiled.android.LogSystem
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.mobiled.android.base.model.HardwareGroupItem
 import com.mobiled.android.databinding.ItemDeviceSelectionBinding
 
-class RcvDeviceListSelectionAdapter :
-    RecyclerView.Adapter<RcvDeviceListSelectionAdapter.ViewHolder>() {
-    private var itemList: List<HardwareGroupItem> = ArrayList()
-
+class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectionAdapter.ViewHolder>() {
+    private var itemList: List<HardwareGroupItem> = emptyList()
     private var singleItemSelection = false
+    private var showPixelId = false
+    private var currentViewHolder: ViewHolder? = null
 
-    private var currentViewHolder : ViewHolder ? = null
-
-    class ViewHolder(var viewBinding: ItemDeviceSelectionBinding) :
-        androidx.recyclerview.widget.RecyclerView.ViewHolder(viewBinding.root)
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(
-            ItemDeviceSelectionBinding.inflate(
-                LayoutInflater.from(parent.context),
-                parent,
-                false
-            )
-        )
+    class ViewHolder(val viewBinding: ItemDeviceSelectionBinding) : RecyclerView.ViewHolder(viewBinding.root) {
+        var pixelWatcher: TextWatcher? = null
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        var item = itemList[holder.bindingAdapterPosition]
-        LogSystem.e("Adapter", "Item : " + position + " ${item.toString()}")
-        holder.viewBinding.textDeviceName.setText(item.hardwareDevice?.devName ?: "N/A")
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder = ViewHolder(
+        ItemDeviceSelectionBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+    )
 
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val item = itemList[holder.bindingAdapterPosition]
+        holder.viewBinding.textDeviceName.text = item.hardwareDevice?.devName ?: "N/A"
         holder.viewBinding.selectionView.setOnCheckedChangeListener(null)
         holder.viewBinding.selectionView.isChecked = item.selected
-        if(singleItemSelection && item.selected) currentViewHolder = holder
+        holder.viewBinding.pixelIdEdit.visibility = if (showPixelId) View.VISIBLE else View.GONE
 
-        holder.viewBinding.selectionView.post {
-            holder.viewBinding.selectionView.setOnCheckedChangeListener { buttonView, isChecked ->
-                var index = currentViewHolder?.bindingAdapterPosition?:0
-                if(index == -1)
-                {
-                    notifyDataSetChanged()
-                    return@setOnCheckedChangeListener
+        holder.pixelWatcher?.let { holder.viewBinding.pixelIdEdit.removeTextChangedListener(it) }
+        holder.pixelWatcher = null
+        if (showPixelId) {
+            holder.viewBinding.pixelIdEdit.inputType = InputType.TYPE_CLASS_NUMBER
+            holder.viewBinding.pixelIdEdit.setText(item.PixelID.toString())
+            val watcher = object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    s?.toString()?.toIntOrNull()?.let { item.PixelID = it.coerceIn(0, 1023) }
                 }
-                item.selected = isChecked
-                if(singleItemSelection && isChecked)
-                {
-                    if(currentViewHolder!=null && holder.bindingAdapterPosition != currentViewHolder?.bindingAdapterPosition)
-                    {
-                        itemList[currentViewHolder?.bindingAdapterPosition?:0].selected = false
-                        notifyItemChanged(currentViewHolder?.bindingAdapterPosition?:0)
+                override fun afterTextChanged(s: Editable?) = Unit
+            }
+            holder.pixelWatcher = watcher
+            holder.viewBinding.pixelIdEdit.addTextChangedListener(watcher)
+            holder.viewBinding.pixelIdEdit.setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) commitPixelId(holder, item) }
+            holder.viewBinding.pixelIdEdit.setOnEditorActionListener { _, _, _ -> commitPixelId(holder, item); true }
+        } else {
+            holder.viewBinding.pixelIdEdit.setOnFocusChangeListener(null)
+            holder.viewBinding.pixelIdEdit.setOnEditorActionListener(null)
+        }
+
+        if (singleItemSelection && item.selected) currentViewHolder = holder
+        holder.viewBinding.selectionView.setOnCheckedChangeListener { _, checked ->
+            item.selected = checked
+            if (singleItemSelection && checked) {
+                val old = currentViewHolder
+                if (old != null && old !== holder) {
+                    val oldIndex = old.bindingAdapterPosition
+                    if (oldIndex >= 0 && oldIndex < itemList.size) {
+                        itemList[oldIndex].selected = false
+                        notifyItemChanged(oldIndex)
                     }
-                    currentViewHolder = holder
                 }
+                currentViewHolder = holder
             }
         }
     }
 
-    fun setItems(items: List<HardwareGroupItem>,singleItemSelection : Boolean = false) {
+    private fun commitPixelId(holder: ViewHolder, item: HardwareGroupItem) {
+        item.PixelID = (holder.viewBinding.pixelIdEdit.text.toString().toIntOrNull() ?: item.PixelID).coerceIn(0, 1023)
+        if (holder.viewBinding.pixelIdEdit.text.toString() != item.PixelID.toString()) {
+            holder.viewBinding.pixelIdEdit.setText(item.PixelID.toString())
+        }
+    }
+
+    fun setItems(items: List<HardwareGroupItem>, singleItemSelection: Boolean = false, showPixelId: Boolean = false) {
         itemList = ArrayList(items)
         this.singleItemSelection = singleItemSelection
+        this.showPixelId = showPixelId
+        currentViewHolder = null
         notifyDataSetChanged()
     }
 
     fun getItems() = itemList
-
     override fun getItemCount(): Int = itemList.size
-    fun getSelectedItems(): List<HardwareGroupItem> {
-        var items = ArrayList<HardwareGroupItem>()
-        itemList.forEach {
-            if (it.selected) {
-                items.add(it)
-            }
-        }
-        return items
-    }
+    fun getSelectedItems(): List<HardwareGroupItem> = itemList.filter { it.selected }
 }

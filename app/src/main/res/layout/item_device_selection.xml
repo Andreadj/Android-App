@@ -1,29 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="@dimen/_35sdp"
-    android:layout_marginTop="@dimen/_2sdp"
-    android:background="@color/darkColor">
-
-    <TextView
-        android:id="@+id/textDeviceName"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_vertical"
-        android:layout_marginStart="@dimen/_15sdp"
-        android:layout_marginEnd="@dimen/_50sdp"
-        android:padding="@dimen/_5sdp"
-        android:text="TextView"
-        android:textColor="@color/grayTextColor"
-        android:textSize="@dimen/_12sdp" />
-
-
-    <CheckBox
-        android:id="@+id/selectionView"
-        android:layout_width="@dimen/_35sdp"
-        android:layout_height="@dimen/_35sdp"
-        android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="@dimen/_15sdp"
-        android:checked="false"
-        android:gravity="center" />
+    android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="2dp" android:background="@color/darkColor">
+    <TextView android:id="@+id/textDeviceName" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center_vertical" android:layout_marginStart="12dp" android:padding="4dp" android:textColor="@color/grayTextColor" android:textSize="13sp" android:ellipsize="end" android:maxLines="1" android:layout_marginEnd="112dp" />
+    <EditText android:id="@+id/pixelIdEdit" android:layout_width="56dp" android:layout_height="38dp" android:layout_gravity="end|center_vertical" android:layout_marginEnd="52dp" android:background="@drawable/dark_box_corner" android:gravity="center" android:inputType="number" android:padding="2dp" android:textColor="@color/white" android:textSize="13sp" android:hint="ID" android:selectAllOnFocus="true" />
+    <CheckBox android:id="@+id/selectionView" android:layout_width="35dp" android:layout_height="35dp" android:layout_gravity="end|center_vertical" android:layout_marginEnd="8dp" android:gravity="center" />
 </FrameLayout>

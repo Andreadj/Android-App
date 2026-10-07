@@ -1,7 +1,6 @@
 package com.mobiled.android.base.common
 
 import com.mobiled.android.base.comman.UdpClient
-import java.lang.ref.WeakReference
 import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
 
@@ -10,23 +9,20 @@ class DeviceStateWatcher : Thread() {
     private val MIN_TIME_PERIOD = 5000L
     private val CHECK_INTERVAL = 500L
 
-    var specificDeviceState: ConcurrentHashMap<String, Boolean> = ConcurrentHashMap()
-    var specificDeviceStateTime: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
-    var specificDeviceListener: ConcurrentHashMap<String, ArrayList<WeakReference<UdpClient.StateListener>>> = ConcurrentHashMap()
+    private val specificDeviceState: ConcurrentHashMap<String, Boolean> = ConcurrentHashMap()
+    private val specificDeviceStateTime: ConcurrentHashMap<String, Long> = ConcurrentHashMap()
+    // State listeners must stay strongly referenced while the watcher is active.
+    // WeakReference listeners can be garbage-collected while a device is still being watched,
+    // which prevents the live offline transition from reaching the Home/group UI.
+    private val specificDeviceListener: ConcurrentHashMap<String, ArrayList<UdpClient.StateListener>> = ConcurrentHashMap()
 
     override fun run() {
-        System.err.println("Execution Started!")
-
         try {
             while (!isInterrupted) {
                 val deviceIterator = specificDeviceState.keys.iterator()
-
                 while (deviceIterator.hasNext()) {
-                    val ip = deviceIterator.next()
-                    checkAndUpdateDeviceState(ip)
+                    checkAndUpdateDeviceState(deviceIterator.next())
                 }
-
-                // Sleep between checks
                 try {
                     sleep(CHECK_INTERVAL)
                 } catch (e: InterruptedException) {
@@ -41,49 +37,28 @@ class DeviceStateWatcher : Thread() {
     private fun checkAndUpdateDeviceState(ip: String) {
         val previousState = specificDeviceState[ip] ?: false
         val lastCheckedTime = specificDeviceStateTime[ip] ?: 0L
-        val doNeedCheck = ((System.currentTimeMillis() - lastCheckedTime) > MIN_TIME_PERIOD)
-        System.err.println("Checking: $ip Status Needs Check : $doNeedCheck")
+        val doNeedCheck = System.currentTimeMillis() - lastCheckedTime > MIN_TIME_PERIOD
         try {
-            // Skip if the device is already marked active and within the timeout period
-            if (previousState && !doNeedCheck) {
-                return
-            }
-
-            val isReachable = pingDevice(ip)
+            if (previousState && !doNeedCheck) return
+            val isReachable = InetAddress.getByName(ip).isReachable(TIMEOUT)
             specificDeviceState[ip] = isReachable
             specificDeviceStateTime[ip] = System.currentTimeMillis()
-
-            // Notify listeners if the state has changed
-            if (isReachable != previousState) {
-                postConnectionChanged(ip, isReachable)
-            }
-
+            if (isReachable != previousState) postConnectionChanged(ip, isReachable)
         } catch (e: Exception) {
-            e.printStackTrace()
             specificDeviceState[ip] = false
             specificDeviceStateTime[ip] = System.currentTimeMillis()
-            if(previousState) postConnectionChanged(ip, false)
+            if (previousState) postConnectionChanged(ip, false)
         }
-    }
-
-    private fun pingDevice(ip: String): Boolean {
-        System.err.println("Pinging: $ip")
-        return InetAddress.getByName(ip).isReachable(TIMEOUT)
     }
 
     @Synchronized
     private fun postConnectionChanged(ip: String, isConnected: Boolean) {
-        System.err.println("Post Connection Changed: $ip >>> $isConnected")
-        specificDeviceListener[ip]?.forEach { weakRef ->
-            weakRef.get()?.onClientConnectionStatusChange(isConnected)
-        }
+        specificDeviceListener[ip]?.forEach { it.onClientConnectionStatusChange(isConnected) }
     }
 
     fun registerDeviceListener(ip: String, stateListener: UdpClient.StateListener) {
         specificDeviceStateTime[ip] = System.currentTimeMillis()
-
-        // Initialize the listener list if not present
-        specificDeviceListener.getOrPut(ip) { arrayListOf() }.add(WeakReference(stateListener))
+        specificDeviceListener.getOrPut(ip) { arrayListOf() }.add(stateListener)
         specificDeviceState.putIfAbsent(ip, true)
     }
 }
