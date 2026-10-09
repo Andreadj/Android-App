@@ -68,8 +68,10 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         viewBinding.tvDeviceName.text = device.ApName
         viewBinding.tvDeviceType.text = device.devName
 
-        if (device.deviceFrame.isNotEmpty()) {
+        if (device.isOnline && device.deviceFrame.isNotEmpty()) {
             updateDeviceView(viewBinding, device)
+        } else {
+            resetViewVisibility(viewBinding)
         }
         viewBinding.viewSyncState.visibility = View.VISIBLE
 
@@ -94,23 +96,25 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
             }
         }
 
-        getClient(holder.itemView.context).listenConnectionState(device.ip ?:"",object :
-            UdpClient.StateListener
-        {
-            override fun onClientConnectionStatusChange(result: Boolean) {
-                if(!result)
-                {
-                    device.applyPreviousFrame("")
-                    device.applyPreviousFrame("")
-                    mainHandler?.post(syncStateRunnable)
+        getClient(holder.itemView.context).listenDiscoveryState(
+            device.ApName.orEmpty(),
+            object : UdpClient.DiscoveryStateListener {
+                override fun onDiscoveryStateChanged(online: Boolean) {
+                    device.isOnline = online
                     mainHandler?.post {
-                        viewBinding.viewSyncState.visibility = View.GONE
-                        viewBinding.ivDeviceStatus.setImageResource(R.drawable.mobile_d_device_default)
+                        if (!online) {
+                            viewBinding.viewSyncState.visibility = View.GONE
+                            viewBinding.ivDeviceStatus.setImageResource(
+                                R.drawable.mobile_d_device_default
+                            )
+                            resetViewVisibility(viewBinding)
+                        } else if (device.deviceFrame.isNotEmpty()) {
+                            updateDeviceView(viewBinding, device)
+                        }
                     }
                 }
             }
-
-        })
+        )
 
         getClient(holder.itemView.context).startListen(
             device.ApName!!,
@@ -204,22 +208,20 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         }
 
         hardwareGroup.groupItems?.forEach { groupItem ->
-            getClient(holder.itemView.context).listenConnectionState(groupItem.hardwareDevice?.ip?:"",object :
-                UdpClient.StateListener
-            {
-                override fun onClientConnectionStatusChange(result: Boolean) {
-                    if(!result) {
-                        groupItem.hardwareDevice?.applyPreviousFrame("")
-                        groupItem.hardwareDevice?.applyPreviousFrame("")
+            getClient(holder.itemView.context).listenDiscoveryState(
+                groupItem.hardwareDevice?.ApName.orEmpty(),
+                object : UdpClient.DiscoveryStateListener {
+                    override fun onDiscoveryStateChanged(online: Boolean) {
+                        groupItem.hardwareDevice?.isOnline = online
                         mainHandler?.post(updateTask)
-                        mainHandler?.post { viewBinding.viewSyncState.visibility = View.GONE }
-                        viewBinding.ivDeviceStatus.setImageResource(R.drawable.group_device_default)
-                        holder.setDeviceNames(hardwareGroup)
+                        if (!online) {
+                            mainHandler?.post { viewBinding.viewSyncState.visibility = View.GONE }
+                            viewBinding.ivDeviceStatus.setImageResource(R.drawable.group_device_default)
+                            holder.setDeviceNames(hardwareGroup)
+                        }
                     }
-
                 }
-
-            })
+            )
             getClient(holder.itemView.context).startListen(
                 groupItem.hardwareDevice?.ApName ?: "",
                 object : UdpClient.Listener {
@@ -247,29 +249,24 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         bytes: ByteArray,
         updateTask: Runnable
     ) {
-        LogSystem.e(TAG,"UDP Message Received Holder-${holder.bindingAdapterPosition} Device-${device.ApName}")
+        LogSystem.e(TAG, "UDP Discovery received Holder-${holder.bindingAdapterPosition} Device-${device.ApName}")
         executor.submit {
             try {
                 val jsonObject = JSONObject(String(bytes))
+                if (!jsonObject.has("APName")) return@submit
                 val frame = jsonObject.toString()
                 synchronized(device) {
-                    if (device.actionTime == -1L) {
-                        device.applyPreviousFrame(frame)
-                        mainHandler?.post(updateTask)
-                    } else if (frame == device.deviceFrame) {
-                        device.actionTime = -1L
-                        device.applyPreviousFrame(frame)
-                        mainHandler?.post(updateTask)
-                    } else if (device.isReachedMaxActionWait()) {
-                        device.actionTime = -1L
-                        device.applyPreviousFrame(frame)
-                        mainHandler?.post(updateTask)
-                        device.prevLightCommand?.let { holder.writeCommand(it, device) }
-                    } else {
+                    // Discovery is authoritative. Always replace the previous
+                    // Discovery frame with the newly received complete frame.
+                    // Never ignore a valid packet because a local command is
+                    // pending and never write a local command into deviceFrame.
+                    device.applyDiscoveryFrame(frame)
+                    if (device.activeCommandFrame == frame) {
+                        device.clearSentCommand()
                     }
                 }
-            } catch (e: Exception) {
-                // Handle exception
+                mainHandler?.post(updateTask)
+            } catch (_: Exception) {
             }
         }
     }
@@ -279,14 +276,10 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         viewBinding: ListItemBinding,
         device: HardwareDevice
     ) {
-        if (device.deviceFrame.isNotEmpty()) {
-            GeneralUtil.bindSwitchImage(
-                device.getCommandInv(),
-                viewBinding.buttonChangeDeviceStatus,
-                viewBinding.viewDeviceSwitchRoot
-            )
-
-            holder.changeCommand(device)
+        if (device.isOnline && device.deviceFrame.isNotEmpty()) {
+            val discoveryFrame = JSONObject(device.deviceFrame)
+            val command = if (discoveryFrame.optInt("Command", 0) == 1) 0 else 1
+            holder.changeCommand(device, command)
             itemListener?.onDeviceStatusChangeRequest(device)
         } else {
             itemListener?.onUdpActionFailed("Waiting for device to connect")
@@ -299,24 +292,36 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         hardwareGroup: HardwareGroup,
         updateTask: Runnable
     ) {
-        val command = if (hardwareGroup.isDevicesOn) 0 else 1
-        hardwareGroup.groupItems?.forEach { item ->
-            holder.changeCommand(item, command, object : UdpClient.WriteCallback {
-                override fun onOperationDone(result: Boolean) {
-                    LogSystem.e(TAG, "${item.hardwareDevice?.ip} UDP Write >>> Success = $result")
-                }
-
-                override fun apName(): String {
-                    return item.hardwareDevice?.ApName ?: "NONE"
-                }
-            })
+        val onlineDevices = hardwareGroup.groupItems.orEmpty().mapNotNull { item ->
+            item.hardwareDevice?.takeIf {
+                it.isOnline && !it.ip.isNullOrBlank() && it.deviceFrame.isNotBlank()
+            }
         }
-        hardwareGroup.isDevicesOn = command == 1
-        GeneralUtil.bindSwitchImage(
-            command,
-            viewBinding.buttonChangeDeviceStatus,
-            viewBinding.viewDeviceSwitchRoot
-        )
+        if (onlineDevices.isEmpty()) {
+            itemListener?.onUdpActionFailed("Waiting for device to connect")
+            return
+        }
+
+        // PC/Home rule: all ON -> send OFF; otherwise (all OFF or mixed)
+        // send ON to every online member. The button itself is rendered from
+        // Discovery and is never changed optimistically.
+        val allOn = onlineDevices.all {
+            JSONObject(it.deviceFrame).optInt("Command", 0) == 1
+        }
+        val command = if (allOn) 0 else 1
+
+        hardwareGroup.groupItems.orEmpty().forEach { item ->
+            val device = item.hardwareDevice
+            if (device != null && onlineDevices.any { it === device }) {
+                holder.changeCommand(item, command, object : UdpClient.WriteCallback {
+                    override fun onOperationDone(result: Boolean) {
+                        LogSystem.e(TAG, "${device.ip} UDP Write >>> Success = $result")
+                    }
+
+                    override fun apName(): String = device.ApName ?: "NONE"
+                })
+            }
+        }
     }
 
     private fun handleLongClick(
@@ -374,8 +379,13 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
     }
 
     private fun updateDeviceView(viewBinding: ListItemBinding, device: HardwareDevice) {
-        LogSystem.e(TAG,"3.Task Update Device View")
+        LogSystem.e(TAG, "3.Task Update Device View")
         viewBinding.viewSyncState.visibility = View.GONE
+        if (!device.isOnline || device.deviceFrame.isBlank()) {
+            viewBinding.ivDeviceStatus.setImageResource(R.drawable.mobile_d_device_default)
+            resetViewVisibility(viewBinding)
+            return
+        }
         val jsonObject = JSONObject(device.deviceFrame)
         viewBinding.ivDeviceStatus.setImageResource(R.drawable.mobile_d_device_on)
         val charge = jsonObject.getInt("Charge")
@@ -414,7 +424,8 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
 //                it.hardwareDevice?.let { processChanges(it) }
 //            }
             val onlineItems = groupItems.filter {
-                it.hardwareDevice?.deviceFrame?.isNotBlank() == true
+                val d = it.hardwareDevice
+                d?.isOnline == true && d.deviceFrame.isNotBlank() && !d.ip.isNullOrBlank()
             }
             val anyDeviceActive = onlineItems.isNotEmpty()
             val allDevicesActive = onlineItems.size == groupItems.size
@@ -456,7 +467,12 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                     }
                 }
 
-                hardwareGroup.isDevicesOn = allCommandsSame && initialCommand == 1
+                // PC App Home group indicator: mixed online members must not
+                // synthesize a single ON/OFF state or a single effect/color.
+                // The Controller page has separate group-power semantics.
+                hardwareGroup.isDevicesOn = allCommandsSame && onlineItems.all {
+                    JSONObject(it.hardwareDevice?.deviceFrame.orEmpty()).optInt("Command", 0) == 1
+                }
                 hardwareGroup.OnOffStatusSame = allCommandsSame
                 hardwareGroup.colorLedStatusSame = allColorsSame
 
@@ -465,11 +481,13 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                     viewBinding.viewLedStateRoot.visibility = View.VISIBLE
                 } else {
                     viewBinding.viewGLightType.setImageResource(R.drawable.eff_glight_none)
+                    viewBinding.viewLedStateRoot.visibility = View.GONE
                 }
 
-                if (allCommandsSame) {
-                    viewBinding.viewDeviceSwitchRoot.visibility = View.VISIBLE
-                }
+                // PC Home shows the group power control only when all online
+                // members report the same Command state.
+                viewBinding.viewDeviceSwitchRoot.visibility =
+                    if (allCommandsSame) View.VISIBLE else View.GONE
             } else {
                 hardwareGroup.isDevicesOn = false
                 hardwareGroup.OnOffStatusSame = false
@@ -518,13 +536,63 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
             }
         ) {
             device?.let {
-                UdpClient.instance?.writeString(
-                    lightCommand.toJsonString(),
+                val payload = lightCommand.toJsonString()
+                UdpClient.instance?.writeCommandString(
+                    payload,
                     it.ip ?: "",
-                    it.port.toInt(),
                     writeCallback
                 )
+                it.rememberSentCommand(payload)
             }
+        }
+
+        private fun buildPowerPayload(discovery: JSONObject, command: Int): String {
+            val glights = discovery.optInt("GLights", -1)
+            val payload = JSONObject()
+            fun copy(key: String) {
+                if (discovery.has(key)) payload.put(key, discovery.opt(key))
+            }
+            copy("Command")
+            copy("GLights")
+            when {
+                glights == 0 -> {
+                    copy("Brightness"); copy("Hue")
+                    copy("red"); copy("green"); copy("blue"); copy("white")
+                }
+                glights in 1..99 -> {
+                    copy("Speed"); copy("Brightness"); copy("GState"); copy("GPort")
+                }
+                glights == 100 -> {
+                    copy("GPort"); copy("GUniverse"); copy("PixelID"); copy("PixelCount")
+                }
+                glights in 101..199 -> {
+                    copy("Speed"); copy("Brightness"); copy("GState"); copy("GPort")
+                    copy("GUniverse"); copy("PixelID"); copy("PixelCount")
+                    copy("ColorCount"); copy("Random"); copy("Custom1"); copy("Custom2")
+                    copy("Custom3"); copy("OnOff1"); copy("OnOff2"); copy("Colors")
+                }
+                else -> {
+                    val keys = discovery.keys()
+                    while (keys.hasNext()) copy(keys.next())
+                }
+            }
+            payload.put("Command", command)
+            return payload.toString()
+        }
+
+        private fun writeRawCommand(
+            payload: String,
+            device: HardwareDevice?,
+            writeCallback: UdpClient.WriteCallback = object : UdpClient.WriteCallback {
+                override fun onOperationDone(result: Boolean) {
+                    LogSystem.e(TAG, "${device?.ip} UDP Write >>> Success = $result")
+                }
+            }
+        ) {
+            val d = device ?: return
+            if (payload.isBlank() || d.ip.isNullOrBlank()) return
+            UdpClient.instance?.writeCommandString(payload, d.ip ?: "", writeCallback)
+            d.rememberSentCommand(payload)
         }
 
         fun changeCommand(
@@ -534,27 +602,26 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                 override fun onOperationDone(result: Boolean) {
                     LogSystem.e(TAG, "${device?.ip} UDP Write >>> Success = $result")
                     if (!result) {
-                        device?.applyPreviousFrame("")
+                        device?.clearSentCommand()
                     }
                 }
             }
         ) {
             device?.let {
-                val frame = it.deviceFrame
-                if (!frame.isNullOrEmpty()) {
-                    val jsonObject = JSONObject(frame)
-                    if (jsonObject.getInt("Command") == command) return
+                val sourceFrame = it.deviceFrame
+                if (!sourceFrame.isNullOrEmpty()) {
+                    val jsonObject = JSONObject(sourceFrame)
+                    if (jsonObject.optInt("Command", 0) == command) return
 
                     val lightCommand = LightCommand().apply { fromJson(jsonObject) }
                     lightCommand.Command =
                         if (command == -1) lightCommand.Command xor 1 else command
-                    jsonObject.put("Command", lightCommand.Command)
+                    val payload = buildPowerPayload(jsonObject, lightCommand.Command)
 
-                    if (frame != jsonObject.toString()) {
-                        writeCommand(lightCommand, it, writeCallback)
+                    if (payload != sourceFrame) {
+                        writeRawCommand(payload, it, writeCallback)
                         synchronized(it) {
-                            it.actionTime = System.currentTimeMillis()
-                            it.deviceFrame = jsonObject.toString()
+                            it.rememberSentCommand(payload)
                             it.prevLightCommand = lightCommand
                             viewBinding.viewSyncState.visibility = View.VISIBLE
                         }
@@ -577,7 +644,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
             var startIndex = 0
             visibleItems.forEach { item ->
                 val deviceName = item.hardwareDevice?.devName.orEmpty()
-                val isOnline = item.hardwareDevice?.deviceFrame?.isNotBlank() == true
+                val isOnline = item.hardwareDevice?.isOnline == true
                 val color =
                     if (!isOnline) Color.GRAY
                     else if (item.GState == "M") Color.RED
@@ -616,24 +683,24 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         ) {
 
             device.hardwareDevice?.let {
-                val frame = it.deviceFrame
-                if (!frame.isNullOrEmpty()) {
-                    val jsonObject = JSONObject(frame)
-                    if (jsonObject.getInt("Command") == command) return
+                val sourceFrame = it.deviceFrame
+                if (!sourceFrame.isNullOrEmpty()) {
+                    val jsonObject = JSONObject(sourceFrame)
+                    if (jsonObject.optInt("Command", 0) == command) return
 
                     val lightCommand = LightCommand().apply { fromJson(jsonObject) }
-                    lightCommand.GState = device.GState
-                    lightCommand.GPort = device.Gport
 
+                    // ON/OFF is intentionally a pure Command change. The
+                    // Discovery frame is the source of truth; preserve all
+                    // other fields exactly as received.
                     lightCommand.Command =
                         if (command == -1) lightCommand.Command xor 1 else command
-                    jsonObject.put("Command", lightCommand.Command)
+                    val payload = buildPowerPayload(jsonObject, lightCommand.Command)
 
-                    if (frame != jsonObject.toString()) {
-                        writeCommand(lightCommand, it, writeCallback)
+                    if (payload != sourceFrame) {
+                        writeRawCommand(payload, it, writeCallback)
                         synchronized(it) {
-                            it.actionTime = System.currentTimeMillis()
-                            it.deviceFrame = jsonObject.toString()
+                            it.rememberSentCommand(payload)
                             it.prevLightCommand = lightCommand
                             viewBinding.viewSyncState.visibility = View.VISIBLE
                         }

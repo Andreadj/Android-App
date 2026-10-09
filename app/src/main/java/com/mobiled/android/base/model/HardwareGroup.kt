@@ -24,6 +24,11 @@ class HardwareGroup : Serializable {
     @ColumnInfo(name = "all_devices")
     var allDevices = false
 
+    // PC App group-level Matrix/Music base Universe. Runtime/configuration
+    // data only; the Android database schema is intentionally unchanged.
+    @Ignore
+    var GUniverse: Int = 32000
+
     @Ignore
     var isDevicesActive: Boolean = false
 

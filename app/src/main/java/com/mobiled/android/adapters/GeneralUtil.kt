@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.ImageView
 import androidx.core.widget.ImageViewCompat
 import com.mobiled.android.R
+import com.mobiled.android.ui.controller.MusicIconDrawable
 import org.json.JSONObject
 
 object GeneralUtil {
@@ -151,6 +152,59 @@ object GeneralUtil {
 
             12 -> {
                 imageRes = R.drawable.eff_heartbeat
+            }
+
+            100 -> {
+                view.setImageDrawable(MusicIconDrawable())
+                return
+            }
+
+            101 -> {
+                imageRes = R.drawable.matrix_101
+            }
+
+            102 -> {
+                imageRes = R.drawable.matrix_102
+            }
+
+            103 -> {
+                imageRes = R.drawable.matrix_103
+            }
+
+            104 -> {
+                imageRes = R.drawable.matrix_104
+            }
+
+            105 -> {
+                imageRes = R.drawable.matrix_105
+            }
+
+            106 -> {
+                imageRes = R.drawable.matrix_106
+            }
+
+            107 -> {
+                imageRes = R.drawable.matrix_107
+            }
+
+            108 -> {
+                imageRes = R.drawable.matrix_108
+            }
+
+            109 -> {
+                imageRes = R.drawable.matrix_109
+            }
+
+            110 -> {
+                imageRes = R.drawable.matrix_110
+            }
+
+            111 -> {
+                imageRes = R.drawable.matrix_111
+            }
+
+            112 -> {
+                imageRes = R.drawable.matrix_112
             }
         }
         view.setImageResource(imageRes)

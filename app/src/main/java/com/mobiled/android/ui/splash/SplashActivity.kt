@@ -69,8 +69,7 @@ class SplashActivity : com.mobiled.android.base.BaseActivity<ActivitySplashBindi
     private fun hasPermissions(): Boolean {
         permissionList = arrayOf(
             permission.ACCESS_COARSE_LOCATION, permission.ACCESS_FINE_LOCATION,
-            permission.ACCESS_WIFI_STATE, permission.CHANGE_WIFI_STATE,
-            permission.RECORD_AUDIO
+            permission.ACCESS_WIFI_STATE, permission.CHANGE_WIFI_STATE
         )
 
         var permissionArray = ArrayList<String>()

@@ -4,6 +4,9 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.media.AudioFormat
@@ -37,6 +40,9 @@ import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.MulticastSocket
+import java.net.NetworkInterface
+import java.net.Inet4Address
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.ln
@@ -44,7 +50,12 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.log10
+import kotlin.math.exp
+import kotlin.math.floor
+import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.random.Random
 
 class MusicFragment : BaseFragment<MusicBinding>() {
     companion object { fun newInstance() = MusicFragment() }
@@ -65,14 +76,36 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private var effect = "rainbow"
     private var brightness = 100
     private var white = 0
+    private var transition = "Fade"
     private var running = false
     private var projection: MediaProjection? = null
+    private var projectionResultCode: Int = Activity.RESULT_CANCELED
+    private var projectionData: Intent? = null
     private var recorder: AudioRecord? = null
     private var worker: Thread? = null
+    private var capturePending = false
+    private var captureRequested = false
+    private var audioPermissionInFlight = false
+    private var projectionConsentInFlight = false
+    private var serviceBound = false
+    private val musicServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            serviceBound = true
+            if (capturePending) createProjectionAndStartCapture()
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            serviceBound = false
+        }
+    }
     private var phase = 0f
     private var lastBeat = 0L
     private var bpm = 100
     private var frameSeq = 0
+    private var lastMusicFrameAt = 0L
+    private var musicSacnSocket: MulticastSocket? = null
+    private var musicSacnNetworkInterface: NetworkInterface? = null
+    private var musicSacnRouteIp = ""
+    private val musicSequences = HashMap<Int,Int>()
     private var lastLevel = 0f
     private lateinit var root: LinearLayout
     private lateinit var title: TextView
@@ -88,19 +121,48 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private val spectrumBandMap = IntArray(10)
     private var selectedColorIndex = 0
 
+    // PC MusicEngine runtime state. These values intentionally mirror the
+    // renderer/music_engine.js state rather than introducing an Android-only
+    // timing model.
+    private var beatPeriodMs = 600L
+    private var beatPulse = false
+    private var prevEnergy = 0f
+    private val energyHistory = ArrayList<Float>()
+    private var frequencySmoothing = FloatArray(256)
+    private var lightLevel = 0f
+    private var spectrumLightLevels = FloatArray(0)
+    private var rainbowHue = 0f
+    private var chaseOffset = 0f
+    private var randomHues = FloatArray(0)
+    private var bpmFromIndex = 0
+    private var bpmToIndex = 0
+    private var bpmTransitionStart = 0L
+    private var bpmTransitionMode = "fade"
+    private var musicSequenceCid: ByteArray = UUID.randomUUID().toString().replace("-", "").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         root = view.findViewById(9200)
         vuLeft = MusicVuBar(requireContext())
         vuRight = MusicVuBar(requireContext())
         buildUi()
+        val viewPager = (requireActivity() as ControllerActivity).binding.viewPager
         val callback = object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                if (position != 3 && running) deactivateMusic()
+                if (position == 3) {
+                    requestMusicAuthorization()
+                }
+                // Music must continue running when the user navigates to
+                // another page of the App. It is stopped only by an explicit
+                // Music deactivation/app shutdown or by switching to another
+                // effect through the normal command flow.
             }
         }
         pageCallback = callback
-        (requireActivity() as ControllerActivity).binding.viewPager.registerOnPageChangeCallback(callback)
+        viewPager.registerOnPageChangeCallback(callback)
+        if (viewPager.currentItem == 3) {
+            requestMusicAuthorization()
+        }
     }
 
     override fun onPause() {
@@ -146,8 +208,10 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         page.addView(scroll, FrameLayout.LayoutParams(-1, -1))
 
         val head = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val iconRes = resources.getIdentifier("ic_menu_item_music", "drawable", requireContext().packageName)
-        if (iconRes != 0) head.addView(ImageView(requireContext()).apply { setImageResource(iconRes); scaleType = ImageView.ScaleType.CENTER_INSIDE }, LinearLayout.LayoutParams(dp(40), dp(40)))
+        head.addView(ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_menu_item_music)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }, LinearLayout.LayoutParams(dp(40), dp(40)))
         head.addView(TextView(requireContext()).apply {
             text = "Music"
             textSize = 24f
@@ -242,31 +306,119 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         try {
             effect=id
             loadColors()
+            loadRuntimeState()
             renderControls()
-            if(!running) ensureCaptureAndStart() else sendMusicSelection()
+            // Changing the Music effect is local to the App. The MobileD routing
+            // command is sent only when Music capture/selection is started.
+            if(!running) ensureCaptureAndStart()
         } catch (e: Throwable) {
-            stopCapture(releaseProjection = false)
             android.util.Log.e("MobileDMusic", "Music effect selection failed", e)
             Toast.makeText(requireContext(), "Music could not be started: ${e.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun ensureCaptureAndStart(){
-        if(Build.VERSION.SDK_INT < 29){ Toast.makeText(requireContext(),"Music audio playback capture requires Android 10 or later.",Toast.LENGTH_SHORT).show(); return }
-        if(requireContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED){
-            requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO); return
-        }
-        if (projection != null) {
-            startCapture()
+    private fun requestMusicAuthorization() {
+        if (Build.VERSION.SDK_INT < 29) {
+            Toast.makeText(requireContext(), "Music audio playback capture requires Android 10 or later.", Toast.LENGTH_SHORT).show()
             return
         }
-        requestProjectionLauncher.launch((requireContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent())
+        if (requireContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            if (!audioPermissionInFlight) {
+                audioPermissionInFlight = true
+                requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+            return
+        }
+        requestProjectionAuthorization()
     }
 
-    private val requestAudioPermissionLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()){granted->if(granted) ensureCaptureAndStart()}
-    private val requestProjectionLauncher = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()){result->
-        if(result.resultCode==Activity.RESULT_OK && result.data!=null){
-            try{ projection=(requireContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).getMediaProjection(Activity.RESULT_OK,result.data!!); if(projection!=null) startCapture() }catch(_:Exception){projection=null;Toast.makeText(requireContext(),"Audio capture could not be started.",Toast.LENGTH_SHORT).show()}
+    private fun requestProjectionAuthorization() {
+        if (projectionData != null || projection != null || projectionConsentInFlight) return
+        projectionConsentInFlight = true
+        val manager = requireContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        requestProjectionLauncher.launch(manager.createScreenCaptureIntent())
+    }
+
+    private fun ensureCaptureAndStart() {
+        if (Build.VERSION.SDK_INT < 29) return
+        captureRequested = true
+        if (requireContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            if (!audioPermissionInFlight) {
+                audioPermissionInFlight = true
+                requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+            return
+        }
+        if (projectionData == null && projection == null) {
+            requestProjectionAuthorization()
+            return
+        }
+        if (!running) startCaptureAfterAuthorization()
+    }
+
+    private val requestAudioPermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        audioPermissionInFlight = false
+        if (granted) {
+            requestProjectionAuthorization()
+        }
+    }
+
+    private val requestProjectionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        projectionConsentInFlight = false
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            projectionResultCode = result.resultCode
+            projectionData = result.data
+            if (captureRequested && !running) startCaptureAfterAuthorization()
+        } else {
+            projectionResultCode = Activity.RESULT_CANCELED
+            projectionData = null
+            captureRequested = false
+        }
+    }
+
+    @RequiresApi(29)
+    private fun createProjectionAndStartCapture() {
+        if (!capturePending || running) return
+        capturePending = false
+        try {
+            val data = projectionData ?: throw IllegalStateException("MediaProjection consent data missing")
+            val manager = requireContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            projection = manager.getMediaProjection(projectionResultCode, data)
+            if (projection == null) throw IllegalStateException("MediaProjection unavailable")
+            startCapture()
+        } catch (e: Throwable) {
+            projection = null
+            stopMusicKeepAlive()
+            android.util.Log.e("MobileDMusic", "MediaProjection could not be created", e)
+            Toast.makeText(requireContext(), "Audio capture could not be started.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @RequiresApi(29)
+    private fun startCaptureAfterAuthorization() {
+        if (running || capturePending) return
+        if (projection == null && projectionData == null) {
+            ensureCaptureAndStart()
+            return
+        }
+        capturePending = true
+        try {
+            startMusicKeepAlive()
+            if (!serviceBound) {
+                val intent = Intent(requireContext(), MusicCaptureKeepAliveService::class.java)
+                requireContext().bindService(intent, musicServiceConnection, Context.BIND_AUTO_CREATE)
+            } else {
+                createProjectionAndStartCapture()
+            }
+        } catch (e: Throwable) {
+            capturePending = false
+            stopMusicKeepAlive()
+            android.util.Log.e("MobileDMusic", "Music foreground service could not start", e)
+            Toast.makeText(requireContext(), "Music audio capture unavailable", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -290,14 +442,15 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             container.addView(bar,LinearLayout.LayoutParams(-1,dp(35)).apply{bottomMargin=dp(14)})
         }
         val main = box("Main controls")
-        slider(main,"Brightness",brightness,100,"%"){brightness=it;sendMusicSelection()}
-        if(effects.first{it.id==effect}.white)slider(main,"White",white,100,"%"){white=it;sendMusicSelection()}
+        slider(main,"Brightness",brightness,100,"%"){brightness=it;saveRuntimeState()}
+        if(effects.first{it.id==effect}.white)slider(main,"White",white,100,"%"){white=it;saveRuntimeState()}
         host.addView(main,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})
 
+        // PC App places the effect presets before the color editor.
+        if(effect=="bpm"||effect=="spectrum")addMusicPresetSection(host)
         if(effect=="bpm"||effect=="spectrum")addMusicColors(host)
         if(effect=="spectrum"){val spectrum=box("Spectrum");renderSpectrumControls(spectrum);host.addView(spectrum,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})}
-        if(effect=="bpm"){val transition=box("BPM");transition.addView(spinnerRowMusic("Transition type",listOf("Fade","Direct change","Fade out / fade in"),0){if(running)sendMusicSelection()},LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(4)});host.addView(transition,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})}
-        if(effect=="bpm"||effect=="spectrum")addMusicPresetSection(host)
+        if(effect=="bpm"){val transitionBox=box("BPM");val options=listOf("Fade","Direct change","Fade out / fade in");transitionBox.addView(spinnerRowMusic("Transition type",options,options.indexOf(transition).coerceAtLeast(0)){position->transition=options[position];saveRuntimeState()},LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(4)});host.addView(transitionBox,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})}
     }
 
     private fun addMusicColors(host:LinearLayout){
@@ -309,7 +462,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             val cell=LinearLayout(requireContext()).apply{orientation=LinearLayout.VERTICAL}
             val sw=TextView(requireContext()).apply{text="${i+1}";gravity=Gravity.CENTER;textSize=16f;setTypeface(typeface,android.graphics.Typeface.BOLD);setTextColor(Color.WHITE);setBackgroundColor(if(saved[i])Color.rgb(targetPalette[i][0],targetPalette[i][1],targetPalette[i][2]) else Color.rgb(55,55,55))}
             bindThreeSecondSave(sw,{saveColor(i,effect=="bpm");sw.setBackgroundColor(Color.rgb(0,155,65));Toast.makeText(requireContext(),"Color ${i+1} saved",Toast.LENGTH_SHORT).show()},{})
-            val reset=TextView(requireContext()).apply{text="RESET";gravity=Gravity.CENTER;textSize=10f;setTextColor(Color.WHITE);setBackgroundColor(Color.rgb(70,70,70));setOnClickListener{resetMusicColor(i,effect=="bpm");renderControls();if(running)sendMusicSelection()}}
+            val reset=TextView(requireContext()).apply{text="RESET";gravity=Gravity.CENTER;textSize=10f;setTextColor(Color.WHITE);setBackgroundColor(Color.rgb(70,70,70));setOnClickListener{resetMusicColor(i,effect=="bpm");renderControls()}}
             cell.addView(sw,LinearLayout.LayoutParams(-1,dp(78)));cell.addView(reset,LinearLayout.LayoutParams(-1,dp(40)).apply{topMargin=dp(12)})
             grid.addView(cell,GridLayout.LayoutParams().apply{width=0;height=-2;columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);setMargins(dp(6),dp(6),dp(6),dp(12))})
         }
@@ -327,7 +480,22 @@ class MusicFragment : BaseFragment<MusicBinding>() {
 
     private var pickerColor = intArrayOf(255,0,0,0)
 
+    private fun loadPickerColor() {
+        val p = requireContext().getSharedPreferences("music_picker_current", Context.MODE_PRIVATE)
+        pickerColor[0] = p.getInt("r", 255).coerceIn(0,255)
+        pickerColor[1] = p.getInt("g", 0).coerceIn(0,255)
+        pickerColor[2] = p.getInt("b", 0).coerceIn(0,255)
+        pickerColor[3] = p.getInt("w", 0).coerceIn(0,255)
+    }
+
+    private fun savePickerColor() {
+        requireContext().getSharedPreferences("music_picker_current", Context.MODE_PRIVATE).edit()
+            .putInt("r", pickerColor[0]).putInt("g", pickerColor[1])
+            .putInt("b", pickerColor[2]).putInt("w", pickerColor[3]).apply()
+    }
+
     private fun buildMusicPickerPreview(): View {
+        loadPickerColor()
         val box=LinearLayout(requireContext()).apply{
             orientation=LinearLayout.VERTICAL
             setPadding(4,8,4,6)
@@ -342,13 +510,15 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val picker=ColorPickerView(requireContext())
         box.addView(picker,LinearLayout.LayoutParams(-1,dp(300)))
         picker.setColor(255,pickerColor[0],pickerColor[1],pickerColor[2])
-        picker.setColorAlpha(pickerColor[3]/255f*100f)
-        picker.setBrightness(100)
+        val initialColorBrightness = (maxOf(pickerColor[0], pickerColor[1], pickerColor[2]) * 100 / 255).coerceIn(0,100)
+        picker.setBrightness(initialColorBrightness)
+        picker.setColorAlpha((pickerColor[3] * 100 / 255).coerceIn(0,100))
         picker.setColorChangedListener(object:ColorPickerView.OnColorChangedListener{
             override fun colorChanged(centerColor:Int,argb:IntArray,hsv:FloatArray){
                 pickerColor[0]=argb[1]
                 pickerColor[1]=argb[2]
                 pickerColor[2]=argb[3]
+                savePickerColor()
                 // White is an independent Music parameter; changing hue must not alter it.
             }
         })
@@ -359,8 +529,14 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             setTypeface(typeface,android.graphics.Typeface.BOLD)
             setPadding(0,12,0,4)
         })
-        addLegacyMusicSlider(box,"Color Brightness",100,100,"%"){ value -> picker.setBrightness(value.toFloat()) }
-        if(effects.first{it.id==effect}.white){
+        val colorBrightness = (maxOf(pickerColor[0], pickerColor[1], pickerColor[2]) * 100 / 255).coerceIn(0,100)
+        addLegacyMusicSlider(box,"Color Brightness",colorBrightness,100,"%"){ value ->
+            picker.setBrightness(value)
+            picker.setColorAlpha((pickerColor[3] * 100 / 255).coerceIn(0,100))
+            // ColorPickerView emits the updated RGB through colorChangedListener;
+            // that listener persists the independent Current Color picker state.
+        }
+        if(effects.first{it.id==effect}.white || effect=="bpm" || effect=="spectrum"){
             box.addView(TextView(requireContext()).apply{
                 text="White Brightness"
                 textSize=14f
@@ -370,7 +546,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             })
             addLegacyMusicSlider(box,"White Brightness",(pickerColor[3]*100/255),100,"%"){
                 pickerColor[3]=it*255/100
-                picker.setColorAlpha(it.toFloat())
+                picker.setColorAlpha(it)
+                savePickerColor()
             }
         }
         val hue=LinearLayout(requireContext()).apply{gravity=Gravity.CENTER}
@@ -405,82 +582,160 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         box.addView(grid);panel.addView(box,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=12})
     }
 
-    private fun musicPresetSnapshot():JSONObject {
-        val o=JSONObject().put("brightness",brightness).put("white",white)
-        val a=JSONArray();palette.forEachIndexed{i,c->a.put(JSONObject().put("r",c[0]).put("g",c[1]).put("b",c[2]).put("w",c[3]).put("saved",paletteSaved[i]))};o.put("palette",a)
-        val b=JSONArray();spectrumColors.forEachIndexed{i,c->b.put(JSONObject().put("r",c[0]).put("g",c[1]).put("b",c[2]).put("w",c[3]).put("saved",spectrumSaved[i]).put("band",spectrumBandMap[i]))};o.put("spectrum",b)
+    private fun musicPresetSnapshot(kind:String):JSONObject {
+        // Match the PC App: Music presets store the effect's color configuration,
+        // not the shared Main Brightness/White controls. BPM transition belongs
+        // only to BPM and must never be overwritten by a Spectrum preset.
+        val o=JSONObject().put("kind",kind)
+        if (kind == "bpm") o.put("transition",transition)
+        val targetColors = if (kind == "spectrum") spectrumColors else palette
+        val targetSaved = if (kind == "spectrum") spectrumSaved else paletteSaved
+        val a=JSONArray()
+        targetColors.forEachIndexed { i,c ->
+            val color=JSONObject().put("r",c[0]).put("g",c[1]).put("b",c[2]).put("w",c[3]).put("saved",targetSaved[i])
+            if (kind == "spectrum") color.put("band",spectrumBandMap[i])
+            a.put(color)
+        }
+        o.put("colors",a)
         return o
     }
-    private fun saveMusicPreset(kind:String,index:Int){requireContext().getSharedPreferences("music_presets_$kind",Context.MODE_PRIVATE).edit().putString("$index",musicPresetSnapshot().toString()).apply()}
-    private fun loadMusicPreset(kind:String,index:Int){
+
+    private fun saveMusicPreset(kind:String,index:Int) {
+        requireContext().getSharedPreferences("music_presets_$kind",Context.MODE_PRIVATE).edit()
+            .putString("$index",musicPresetSnapshot(kind).toString()).apply()
+    }
+
+    private fun loadMusicPreset(kind:String,index:Int) {
         val text=requireContext().getSharedPreferences("music_presets_$kind",Context.MODE_PRIVATE).getString("$index",null) ?: return
-        val o=JSONObject(text);brightness=o.optInt("brightness",brightness);white=o.optInt("white",white)
-        o.optJSONArray("palette")?.let{a->for(i in 0 until min(10,a.length())){val c=a.getJSONObject(i);palette[i][0]=c.optInt("r",0);palette[i][1]=c.optInt("g",0);palette[i][2]=c.optInt("b",0);palette[i][3]=c.optInt("w",0);paletteSaved[i]=c.optBoolean("saved",false)}}
-        o.optJSONArray("spectrum")?.let{a->for(i in 0 until min(10,a.length())){val c=a.getJSONObject(i);spectrumColors[i][0]=c.optInt("r",0);spectrumColors[i][1]=c.optInt("g",0);spectrumColors[i][2]=c.optInt("b",0);spectrumColors[i][3]=c.optInt("w",0);spectrumSaved[i]=c.optBoolean("saved",false);spectrumBandMap[i]=c.optInt("band",i.coerceAtMost(2));requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit().putInt("$i.band",spectrumBandMap[i]).apply()}}
-        renderControls();if(running)sendMusicSelection()
+        val o=runCatching { JSONObject(text) }.getOrNull() ?: return
+        if (o.optString("kind", kind) != kind) return
+        if (kind == "bpm") transition=o.optString("transition",transition)
+        val targetColors = if (kind == "spectrum") spectrumColors else palette
+        val targetSaved = if (kind == "spectrum") spectrumSaved else paletteSaved
+        o.optJSONArray("colors")?.let { a ->
+            for (i in 0 until min(10,a.length())) {
+                val c=a.optJSONObject(i) ?: continue
+                targetColors[i][0]=c.optInt("r",0).coerceIn(0,255)
+                targetColors[i][1]=c.optInt("g",0).coerceIn(0,255)
+                targetColors[i][2]=c.optInt("b",0).coerceIn(0,255)
+                targetColors[i][3]=c.optInt("w",0).coerceIn(0,255)
+                targetSaved[i]=c.optBoolean("saved",false)
+                if (kind == "spectrum") {
+                    spectrumBandMap[i]=c.optInt("band",i.coerceAtMost(2)).coerceIn(0,2)
+                    requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit()
+                        .putInt("$i.r",targetColors[i][0]).putInt("$i.g",targetColors[i][1])
+                        .putInt("$i.b",targetColors[i][2]).putInt("$i.w",targetColors[i][3])
+                        .putBoolean("$i.saved",targetSaved[i]).putInt("$i.band",spectrumBandMap[i]).apply()
+                } else {
+                    requireContext().getSharedPreferences("music_colors_bpm",Context.MODE_PRIVATE).edit()
+                        .putInt("$i.r",targetColors[i][0]).putInt("$i.g",targetColors[i][1])
+                        .putInt("$i.b",targetColors[i][2]).putInt("$i.w",targetColors[i][3])
+                        .putBoolean("$i.saved",targetSaved[i]).apply()
+                }
+            }
+        }
+        saveRuntimeState()
+        renderControls()
     }
 
     private fun renderSpectrumControls(panel:LinearLayout) {
-        val count = activeColorCount(spectrumSaved)
+        val activeIndices = spectrumSaved.indices.filter { spectrumSaved[it] }
+        val count = activeIndices.size
         panel.addView(TextView(requireContext()).apply{text="Spectrum colors • Active: $count / 10";textSize=18f;setTextColor(Color.WHITE)})
         if(count==0){panel.addView(TextView(requireContext()).apply{text="Hold a color box for 3 seconds to save the current picker color.";setTextColor(Color.LTGRAY);textSize=12f});return}
-        repeat(count){i->
+        activeIndices.forEachIndexed { displayIndex, colorIndex ->
             val row=LinearLayout(requireContext()).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
-            row.addView(TextView(requireContext()).apply{text=if(count<=3) listOf("Low / Bass","Mid","High")[i] else bandLabel(i);setTextColor(Color.WHITE)},LinearLayout.LayoutParams(0,48,1f))
-            val b=Button(requireContext()).apply{text="Color ${i+1}";setBackgroundColor(Color.rgb(spectrumColors[i][0],spectrumColors[i][1],spectrumColors[i][2]));setOnClickListener{selectedColorIndex=i;renderControls()}}
+            row.addView(TextView(requireContext()).apply{text=if(count<=3) listOf("Low / Bass","Mid","High")[displayIndex] else bandLabel(displayIndex,count);setTextColor(Color.WHITE)},LinearLayout.LayoutParams(0,48,1f))
+            val b=Button(requireContext()).apply{text="Color ${colorIndex+1}";setBackgroundColor(Color.rgb(spectrumColors[colorIndex][0],spectrumColors[colorIndex][1],spectrumColors[colorIndex][2]))}
             row.addView(b,LinearLayout.LayoutParams(105,48))
-            row.addView(Button(requireContext()).apply { text="×"; minWidth=42; setOnClickListener { spectrumSaved[i]=false; spectrumColors[i]=intArrayOf(0,0,0,0); requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit().putBoolean("$i.saved",false).apply(); renderControls(); if(running) sendMusicSelection() } }, LinearLayout.LayoutParams(48,48))
+            row.addView(Button(requireContext()).apply {
+                text="×"; minWidth=42
+                setOnClickListener {
+                    spectrumSaved[colorIndex]=false
+                    spectrumColors[colorIndex]=intArrayOf(0,0,0,0)
+                    requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit()
+                        .putInt("$colorIndex.r",0).putInt("$colorIndex.g",0).putInt("$colorIndex.b",0).putInt("$colorIndex.w",0)
+                        .putBoolean("$colorIndex.saved",false).apply()
+                    renderControls()
+                }
+            }, LinearLayout.LayoutParams(48,48))
             if(count<=3){
-                val sp=Spinner(requireContext()).apply{adapter=ArrayAdapter(requireContext(),android.R.layout.simple_spinner_dropdown_item,listOf("Low / Bass","Mid","High"));setSelection(spectrumBandMap[i].coerceIn(0,2));onItemSelectedListener=listener{ spectrumBandMap[i]=selectedItemPosition; requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit().putInt("$i.band",spectrumBandMap[i]).apply(); if(running)sendMusicSelection() }}
+                val sp=Spinner(requireContext()).apply{
+                    adapter=ArrayAdapter(requireContext(),android.R.layout.simple_spinner_dropdown_item,listOf("Low / Bass","Mid","High"))
+                    setSelection(spectrumBandMap[colorIndex].coerceIn(0,2),false)
+                    onItemSelectedListener=object:AdapterView.OnItemSelectedListener{
+                        override fun onNothingSelected(parent:AdapterView<*>?){ }
+                        override fun onItemSelected(parent:AdapterView<*>?,view:View?,position:Int,id:Long){
+                            if(position in 0..2 && spectrumBandMap[colorIndex] != position){
+                                spectrumBandMap[colorIndex]=position
+                                requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit().putInt("$colorIndex.band",position).apply()
+                            }
+                        }
+                    }
+                }
                 row.addView(sp,LinearLayout.LayoutParams(105,48))
             }
             panel.addView(row)
         }
-        panel.addView(TextView(requireContext()).apply{text=if(count<=3) "1–3 colors: assign each color to Bass / Mid / High. More than 3 colors: 80 Hz–20 kHz is divided into equal bands." else "80 Hz – 20 kHz divided into equal frequency bands.";setTextColor(Color.LTGRAY);textSize=12f})
+        panel.addView(TextView(requireContext()).apply{text=if(count<=3) "1–3 colors: assign each color to Bass / Mid / High. More than 3 colors: 80 Hz–20 kHz is divided into equal logarithmic bands." else "80 Hz – 20 kHz divided into equal logarithmic bands.";setTextColor(Color.LTGRAY);textSize=12f})
     }
 
-    private fun bandLabel(i:Int):String {
+    private fun bandLabel(i:Int,count:Int):String {
         val low=80.0
         val high=20000.0
-        val a=low*Math.pow(high/low,i/10.0)
-        val b=low*Math.pow(high/low,(i+1)/10.0)
-        return "${a.toInt()}–${b.toInt()} Hz"
+        val bands=maxOf(1,count)
+        val a=low*Math.pow(high/low, i.toDouble()/bands)
+        val b=low*Math.pow(high/low, (i+1).toDouble()/bands)
+        fun fmt(hz:Double)=if(hz>=1000) String.format(java.util.Locale.US,"%.1f kHz",hz/1000.0) else "${hz.toInt()} Hz"
+        return "${fmt(a)} – ${fmt(b)}"
     }
 
-    private fun activeColorCount(saved:BooleanArray):Int {
-        var n = 0
-        while (n < saved.size && saved[n]) n++
-        return n
-    }
+    private fun activeColorCount(saved:BooleanArray):Int = saved.count { it }
 
     private fun resetMusicColor(index:Int,paletteTarget:Boolean) {
         val target: MutableList<IntArray> = if (paletteTarget) palette else spectrumColors
         val saved = if (paletteTarget) paletteSaved else spectrumSaved
         target[index] = intArrayOf(0, 0, 0, 0)
         saved[index] = false
-        requireContext().getSharedPreferences(
+        val prefs = requireContext().getSharedPreferences(
             if (paletteTarget) "music_colors_$effect" else "music_spectrum_colors",
             Context.MODE_PRIVATE
-        ).edit().putBoolean("$index.saved", false).apply()
+        )
+        prefs.edit().putInt("$index.r",0).putInt("$index.g",0).putInt("$index.b",0)
+            .putInt("$index.w",0).putBoolean("$index.saved", false).apply()
     }
 
     private fun saveColor(index:Int,paletteTarget:Boolean=true){
         val target: MutableList<IntArray> = if (paletteTarget) palette else spectrumColors
         val saved = if(paletteTarget) paletteSaved else spectrumSaved
+        loadPickerColor()
         target[index]=pickerColor.copyOf()
         saved[index]=true
         requireContext().getSharedPreferences(if(paletteTarget)"music_colors_$effect" else "music_spectrum_colors",Context.MODE_PRIVATE).edit()
             .putInt("$index.r",target[index][0]).putInt("$index.g",target[index][1]).putInt("$index.b",target[index][2]).putInt("$index.w",target[index][3])
             .putBoolean("$index.saved",true).apply()
         renderControls()
-        if(running)sendMusicSelection()
+    }
+
+    private fun saveRuntimeState() {
+        requireContext().getSharedPreferences("music_runtime_$effect", Context.MODE_PRIVATE).edit()
+            .putString("state", JSONObject().put("brightness",brightness).put("white",white).put("transition",transition).toString())
+            .apply()
+    }
+
+    private fun loadRuntimeState() {
+        val raw=requireContext().getSharedPreferences("music_runtime_$effect",Context.MODE_PRIVATE).getString("state",null) ?: return
+        val o=runCatching{JSONObject(raw)}.getOrNull() ?: return
+        brightness=o.optInt("brightness",brightness).coerceIn(0,100)
+        white=o.optInt("white",white).coerceIn(0,100)
+        transition=o.optString("transition",transition).ifBlank{"Fade"}
     }
 
     private fun loadColors() {
         val p=requireContext().getSharedPreferences("music_colors_$effect",Context.MODE_PRIVATE)
-        repeat(10){i->palette[i][0]=p.getInt("$i.r", if(i==0)255 else if(i==1)255 else if(i==2)255 else 0);palette[i][1]=p.getInt("$i.g", if(i==1)255 else 0);palette[i][2]=p.getInt("$i.b", if(i==2)255 else 0);palette[i][3]=p.getInt("$i.w",0);paletteSaved[i]=p.getBoolean("$i.saved",i<3)}
+        repeat(10){i->palette[i][0]=p.getInt("$i.r", if(i==0)255 else if(i==1)255 else if(i==2)255 else 0);palette[i][1]=p.getInt("$i.g", if(i==1)255 else 0);palette[i][2]=p.getInt("$i.b", if(i==2)255 else 0);palette[i][3]=p.getInt("$i.w",0);paletteSaved[i]=p.getBoolean("$i.saved",false)}
         val s=requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE)
-        repeat(10){i->spectrumColors[i][0]=s.getInt("$i.r",if(i==0)255 else if(i==1)255 else if(i==2)255 else 0);spectrumColors[i][1]=s.getInt("$i.g",if(i==1)255 else 0);spectrumColors[i][2]=s.getInt("$i.b",if(i==2)255 else 0);spectrumColors[i][3]=s.getInt("$i.w",0);spectrumSaved[i]=s.getBoolean("$i.saved",i<3);spectrumBandMap[i]=s.getInt("$i.band",i.coerceAtMost(2))}
+        repeat(10){i->spectrumColors[i][0]=s.getInt("$i.r",if(i==0)255 else if(i==1)255 else if(i==2)255 else 0);spectrumColors[i][1]=s.getInt("$i.g",if(i==1)255 else 0);spectrumColors[i][2]=s.getInt("$i.b",if(i==2)255 else 0);spectrumColors[i][3]=s.getInt("$i.w",0);spectrumSaved[i]=s.getBoolean("$i.saved",false);spectrumBandMap[i]=s.getInt("$i.band",i.coerceAtMost(2))}
     }
 
     @RequiresApi(29)
@@ -490,12 +745,38 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         try{
             val sr=44100;val minBuffer=AudioRecord.getMinBufferSize(sr,AudioFormat.CHANNEL_IN_STEREO,AudioFormat.ENCODING_PCM_16BIT);if(minBuffer<=0)throw IllegalStateException("AudioRecord buffer unavailable")
             val cfg=AudioPlaybackCaptureConfiguration.Builder(p).addMatchingUsage(AudioAttributes.USAGE_MEDIA).addMatchingUsage(AudioAttributes.USAGE_GAME).build()
-            startMusicKeepAlive()
             recorder=AudioRecord.Builder().setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_IN_STEREO).build()).setBufferSizeInBytes(max(8192,minBuffer*2)).setAudioPlaybackCaptureConfig(cfg).build();recorder?.startRecording();if(recorder?.recordingState!=AudioRecord.RECORDSTATE_RECORDING)throw IllegalStateException("AudioRecord did not start")
             running=true
+            lastBeat=0L
+            beatPeriodMs=600L
+            prevEnergy=0f
+            energyHistory.clear()
+            lightLevel=0f
+            spectrumLightLevels=FloatArray(0)
+            frequencySmoothing=FloatArray(256)
+            rainbowHue=0f
+            chaseOffset=0f
+            randomHues=FloatArray(0)
+            bpmFromIndex=0
+            bpmToIndex=0
+            bpmTransitionStart=System.currentTimeMillis()
+            bpmTransitionMode="fade"
+            musicSequenceCid=UUID.randomUUID().toString().replace("-", "").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            lastMusicFrameAt=0L
             sendMusicSelection()
             worker=Thread{loop(44100)}.also{it.start()}
-         }catch(e:Exception){recorder?.release();recorder=null;running=false;stopMusicKeepAlive();Toast.makeText(requireContext(),"Music audio capture unavailable",Toast.LENGTH_SHORT).show()}
+         }catch(e:Exception){
+             recorder?.release();recorder=null;running=false;stopMusicKeepAlive()
+             android.util.Log.e("MobileDMusic", "Music AudioRecord capture failed: ${e.javaClass.name}: ${e.message}", e)
+             Toast.makeText(requireContext(),"Music audio capture unavailable",Toast.LENGTH_SHORT).show()
+         }
+    }
+
+    private fun releaseMusicServiceBinding() {
+        if (serviceBound) {
+            try { requireContext().unbindService(musicServiceConnection) } catch (_: Exception) {}
+            serviceBound = false
+        }
     }
 
     private fun stopCapture(releaseProjection:Boolean=true){
@@ -503,8 +784,19 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         worker?.interrupt();worker=null
         try{recorder?.stop()}catch(_:Exception){}
         recorder?.release();recorder=null
+        if (serviceBound) {
+            try { requireContext().unbindService(musicServiceConnection) } catch (_: Exception) {}
+            serviceBound = false
+        }
         stopMusicKeepAlive()
-        if(releaseProjection){projection?.stop();projection=null}
+        closeMusicSacnSocket()
+        if(releaseProjection){
+            captureRequested = false
+            projection?.stop()
+            projection = null
+            projectionData = null
+            projectionResultCode = Activity.RESULT_CANCELED
+        }
     }
 
     private fun startMusicKeepAlive(){
@@ -523,76 +815,115 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     fun deactivateMusic(){
-        stopCapture(releaseProjection = false)
+        stopCapture(releaseProjection = true)
     }
 
     private fun onlineMembers():List<HardwareGroupItem> =
-        (requireActivity() as ControllerActivity).group?.groupItems.orEmpty().filter {
-            !it.hardwareDevice?.deviceFrame.isNullOrBlank() && !it.hardwareDevice?.ip.isNullOrBlank()
-        }
+        (requireActivity() as ControllerActivity).getControllerVirtualStripSnapshot().sortedBy { it.PixelID }
 
     private fun musicPixelIds(items:List<HardwareGroupItem>):List<Int> = items.map { it.PixelID.coerceIn(0,1023) }.sorted()
 
     private fun validMusicGroup(items:List<HardwareGroupItem>):Boolean {
         if(items.isEmpty()) return false
         val ids=musicPixelIds(items)
-        return ids.size==ids.distinct().size && ids==ids.indices.toList()
+        val uniqueIds=ids.distinct()
+        return uniqueIds==uniqueIds.indices.toList()
     }
 
     private fun sendMusicSelection() {
+        saveRuntimeState()
         val a=requireActivity() as ControllerActivity
-        val group=a.group
-        val allItems=group?.groupItems.orEmpty()
-        if(group==null){ Toast.makeText(requireContext(),"Music requires a group.",Toast.LENGTH_SHORT).show(); return }
-        if(!validMusicGroup(allItems)){ Toast.makeText(requireContext(),"Music requires consecutive Pixel IDs starting at 0.",Toast.LENGTH_SHORT).show(); return }
+        if(!a.canOpenDistributedEffects("Music")) return
+        val group=a.group ?: run {
+            Toast.makeText(requireContext(),"Music requires a group.",Toast.LENGTH_SHORT).show(); return
+        }
         val items=onlineMembers()
         if(items.isEmpty()){ Toast.makeText(requireContext(),"No reachable MobileD in this group.",Toast.LENGTH_SHORT).show(); return }
-        val base=a.getFrame()
-        val command=if(items.any { val raw=it.hardwareDevice?.deviceFrame.orEmpty(); if(raw.isBlank()) false else JSONObject(raw).optInt("Command",0)==1 }) 1 else 0
-        val total=allItems.size
-        val gPort=if(group.allDevices) "8890" else items.firstOrNull()?.Gport?.ifBlank{"8889"} ?: "8889"
+        if(!validMusicGroup(items)){ Toast.makeText(requireContext(),"Music requires consecutive Pixel IDs starting at 0.",Toast.LENGTH_SHORT).show(); return }
+
+        val universe=group.GUniverse.takeIf { it in 32000..32500 }
+            ?: run { Toast.makeText(requireContext(),"Invalid Music GUniverse (32000-32500).",Toast.LENGTH_LONG).show(); return }
+        val gPort=if(group.allDevices) 8890 else group.groupItems.orEmpty()
+            .firstOrNull()?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 }
+            ?: run { Toast.makeText(requireContext(),"Invalid Music GPort.",Toast.LENGTH_LONG).show(); return }
+
+        val command=if(items.any {
+            val raw=it.hardwareDevice?.deviceFrame.orEmpty()
+            raw.isNotBlank() && JSONObject(raw).optInt("Command",0)==1
+        }) 1 else 0
+        val total=musicPixelIds(items).distinct().size
+        val client=UdpClient.getClient(requireContext())
+
+        // PC App: one discrete Music selection command immediately, followed
+        // by the normal 50 ms / 15 ms trailing reliability sequence.
         items.sortedBy{it.PixelID}.forEach{item->
             val d=item.hardwareDevice ?: return@forEach
+            val ip=d.ip?.trim().orEmpty()
+            if(ip.isBlank()) return@forEach
             val payload=JSONObject().apply{
                 put("Command", command)
                 put("GLights",100)
                 put("GPort",gPort)
-                put("GUniverse",base.optInt("GUniverse",32000).coerceIn(32000,32500))
-                put("PixelID",item.PixelID.coerceIn(0,1023))
+                put("GUniverse",universe)
+                put("PixelID",item.PixelID)
                 put("PixelCount",total)
             }.toString()
-            d.deviceFrame=payload
-            UdpClient.getClient(requireContext()).writeString(payload,d.ip ?: return@forEach,if(d.port>0)d.port.toInt() else 8889)
+            if(payload != d.activeCommandFrame){
+                client.writeCommandString(payload,ip)
+                d.rememberSentCommand(payload)
+            }
         }
     }
 
     private fun loop(sr:Int) {
-        val buf=ShortArray(4096)
+        val buf=ShortArray(1024)
         try {
             while(running){
-                if(!musicTargetIsOn()){
-                    handler.post { if(running) stopCapture(releaseProjection = false) }
-                    break
-                }
                 val n=recorder?.read(buf,0,buf.size) ?: 0
                 if(n<=0)continue
-                var left=0f;var right=0f
-                var sum=0.0
+
+                var left=0f
+                var right=0f
                 var idx=0
                 while(idx+1<n){
-                    val l=abs(buf[idx].toInt())/32768f
-                    val r=abs(buf[idx+1].toInt())/32768f
-                    left=max(left,l);right=max(right,r);sum+=(l*l+r*r)/2.0;idx+=2
+                    left=max(left,abs(buf[idx].toInt())/32768f)
+                    right=max(right,abs(buf[idx+1].toInt())/32768f)
+                    idx+=2
                 }
-                val level=sqrt(sum/max(1,n/2)).toFloat().coerceIn(0f,1f)
+                val raw=max(left,right).coerceIn(0f,1f)
                 val now=System.currentTimeMillis()
-                if(level>max(0.45f,lastLevel*1.5f) && now-lastBeat>280){
-                    if(lastBeat>0)bpm=(60000/(now-lastBeat)).toInt().coerceIn(60,200)
+                val fd=frequencyByteData(buf,n)
+                val low=(0 until 18).map { (fd[it].toInt() and 0xff).toFloat()/255f }.average().toFloat()
+                val energy=.72f*low+.28f*raw
+
+                energyHistory.add(energy)
+                if(energyHistory.size>43) energyHistory.removeAt(0)
+                val averageEnergy=energyHistory.average().toFloat()
+                if(energy > averageEnergy*1.16f &&
+                    energy > prevEnergy*1.01f &&
+                    now-lastBeat>220L){
+                    if(lastBeat>0L){
+                        val interval=now-lastBeat
+                        if(interval in 220L..1600L) beatPeriodMs=lerpLong(beatPeriodMs,interval,.35f)
+                    }
                     lastBeat=now
+                    beatPulse=true
                 }
-                lastLevel=lastLevel*0.8f+level*0.2f
-                handler.post{if(::vuLeft.isInitialized){vuLeft.level=left;vuRight.level=right;vuLeft.invalidate();vuRight.invalidate();}}
-                renderFrame(buf,n,level,now)
+                prevEnergy=energy
+                bpm=(60000f/max(1L,beatPeriodMs).toFloat()).roundToInt().coerceIn(80,160)
+
+                handler.post{
+                    if(::vuLeft.isInitialized){
+                        vuLeft.level=left
+                        vuRight.level=right
+                        vuLeft.invalidate()
+                        vuRight.invalidate()
+                    }
+                }
+                if(now-lastMusicFrameAt>=33L){
+                    lastMusicFrameAt=now
+                    renderFrame(fd,n,raw,left,right,now)
+                }
             }
         } catch (e: Throwable) {
             android.util.Log.e("MobileDMusic", "Music capture loop failed", e)
@@ -605,95 +936,366 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val g=a.group
         if(g!=null){
             val online=onlineMembers()
-            return online.isNotEmpty() && online.any {
+            if(online.isEmpty()) return false
+            return online.all {
                 val raw=it.hardwareDevice?.deviceFrame.orEmpty()
-                raw.isNotBlank() && JSONObject(raw).optInt("Command",0)==1
+                if(raw.isBlank()) return@all false
+                val command=JSONObject(raw).optInt("Command",-1)
+                command==0 || command==1
             }
         }
         val d=a.device ?: return false
         val raw=d.deviceFrame.orEmpty()
-        return raw.isNotBlank() && JSONObject(raw).optInt("Command",0)==1
+        if(raw.isBlank()) return false
+        val command=JSONObject(raw).optInt("Command",-1)
+        return command==0 || command==1
     }
 
-    private fun renderFrame(samples:ShortArray,n:Int,level:Float,now:Long) {
+    private fun lerpLong(a:Long,b:Long,t:Float):Long = (a+(b-a)*t).roundToInt().toLong()
+
+    private fun smoothLightLevel(target:Float,dt:Float):Float{
+        val delta=target.coerceIn(0f,1f)-lightLevel
+        val magnitude=abs(delta)
+        val rate=if(magnitude<.08f)5f else 12f
+        val alpha=(1f-exp(-rate*dt.coerceIn(.001f,.1f)))
+        lightLevel=(lightLevel+delta*alpha).coerceIn(0f,1f)
+        return lightLevel
+    }
+
+    private fun smoothSpectrumLevel(index:Int,target:Float,dt:Float):Float{
+        if(spectrumLightLevels.size!=onlineMembers().size)spectrumLightLevels=FloatArray(onlineMembers().size)
+        val current=spectrumLightLevels.getOrElse(index){0f}
+        val delta=target.coerceIn(0f,1f)-current
+        val magnitude=abs(delta)
+        val rate=if(magnitude<.08f)5f else 12f
+        val alpha=(1f-exp(-rate*dt.coerceIn(.001f,.1f)))
+        spectrumLightLevels[index]=(current+delta*alpha).coerceIn(0f,1f)
+        return spectrumLightLevels[index]
+    }
+
+    private fun matrixBeatHueStep():Float{
+        val detectedBpm=(60000.0/max(1L,beatPeriodMs).toDouble()).coerceIn(80.0,160.0)
+        val speed=1.0+((detectedBpm-80.0)/80.0)*99.0
+        val level=floor((speed-1.0)/10.0).toInt()
+        val within=(speed-1.0)%10.0
+        val base=256.0 * 2.0.pow(level.toDouble())
+        val next=if(level>=9)base else base*2.0
+        val rate=base+(next-base)*within/10.0
+        return ((rate*max(1L,beatPeriodMs))/1000.0/256.0).toFloat()%256f
+    }
+
+    private fun hueForColor(c:IntArray):Float{
+        val hsv=FloatArray(3)
+        Color.RGBToHSV(c[0].coerceIn(0,255),c[1].coerceIn(0,255),c[2].coerceIn(0,255),hsv)
+        return hsv[0]
+    }
+
+    private fun colorValue(c:IntArray):Float{
+        return max(c[0],max(c[1],c[2]))/255f
+    }
+
+    private fun writeMusicPixel(out:MutableList<IntArray>,index:Int,hue:Float,level:Float,whiteExtra:Float=0f){
+        val rgb=Color.HSVToColor(floatArrayOf(((hue%360f)+360f)%360f,1f,1f))
+        val b=brightness.coerceIn(0,100)/100f
+        val whiteValue=Math.max(whiteExtra,this.white/100f*255f)
+        out[index]=intArrayOf(
+            (Color.red(rgb)*level*b).roundToInt().coerceIn(0,255),
+            (Color.green(rgb)*level*b).roundToInt().coerceIn(0,255),
+            (Color.blue(rgb)*level*b).roundToInt().coerceIn(0,255),
+            (whiteValue*level*b).roundToInt().coerceIn(0,255)
+        )
+    }
+
+    private fun renderFrame(fd:ByteArray,n:Int,level:Float,leftLevel:Float,rightLevel:Float,now:Long) {
         val a=requireActivity() as ControllerActivity
-        val allItems=a.group?.groupItems.orEmpty()
+        val group=a.group ?: return
         val items=onlineMembers()
         if(items.isEmpty())return
-        val count=if(a.group!=null) allItems.size else 1
-        val musicBpm=80f + level.coerceIn(0f,1f)*80f
-        phase=(phase + (musicBpm/60000f)*0.04f)%1f
-        val colors=when(effect){
-            "rainbow"->List(count){hsv(phase*360f+it*(360f/count),1f,(brightness/100f)*max(.08f,level))}
-            "rainbowchase"->List(count){hsv((phase*360f+it*(360f/count)*3f)%360f,1f,(brightness/100f)*max(.08f,level))}
-            "random"->{val pc=activeColorCount(paletteSaved).coerceAtLeast(1);List(count){val c=palette[(it+(now/160).toInt())%pc];scaled(c)}}
-            "bpm"->{val pc=activeColorCount(paletteSaved).coerceAtLeast(1);List(count){val c=palette[((now/(60000L/max(1,bpm))).toInt()+it)%pc];scaled(c)}}
-            "spectrum"->spectrumFrame(samples,n,count)
-            "vumeter"->List(count){val pos=it.toFloat()/max(1,count-1);if(pos<0.6)rgb(0,255,0) else if(pos<0.85)rgb(255,255,0) else rgb(255,0,0)}
-            else->List(count){rgb(0,0,0)}
-        }
-        val compact=colors
+        val count=musicPixelIds(items).distinct().size.coerceAtLeast(1)
+        val dt=.033f
         val frame=MutableList(count){intArrayOf(0,0,0,0)}
-        items.forEach{item-> val id=item.PixelID.coerceIn(0,1023); if(id<count) frame[id]=compact.getOrElse(id){intArrayOf(0,0,0,0)} }
-        sendSacn(frame,allItems.sortedBy{it.PixelID})
+
+        bpmTransitionMode=when(transition){
+            "Fade"->"fade"
+            "Direct change"->"direct"
+            "Fade out / fade in"->"crossfade"
+            else->"fade"
+        }
+        val beatDetected = beatPulse
+        beatPulse = false
+
+        when(effect){
+            "rainbow"->{
+                if(beatDetected) rainbowHue=(rainbowHue+matrixBeatHueStep())%360f
+                val l=smoothLightLevel(level,dt)
+                for(i in 0 until count) writeMusicPixel(frame,i,rainbowHue,l,white.toFloat()/100f*255f)
+            }
+            "random"->{
+                if(randomHues.size!=count)randomHues=FloatArray(count){Random.nextFloat()*360f}
+                if(beatDetected)for(i in 0 until count)randomHues[i]=Random.nextFloat()*360f
+                val l=smoothLightLevel(level,dt)
+                for(i in 0 until count)writeMusicPixel(frame,i,randomHues[i],l,white.toFloat()/100f*255f)
+            }
+            "rainbowchase"->{
+                if(beatDetected)chaseOffset=(chaseOffset+matrixBeatHueStep())%360f
+                val l=smoothLightLevel(level,dt)
+                val step=360f/max(1,count)
+                for(i in 0 until count)writeMusicPixel(frame,i,(chaseOffset+i*step)%360f,l,white.toFloat()/100f*255f)
+            }
+            "bpm"->{
+                val seq=paletteSaved.indices.filter { paletteSaved[it] }
+                if(seq.isEmpty()){
+                    for(i in 0 until count)frame[i]=intArrayOf(0,0,0,0)
+                }else{
+                    if(beatDetected){
+                        // Exact PC MusicEngine sequencing:
+                        // current phase is the source color; the next phase is
+                        // selected as the target on each detected beat.
+                        bpmFromIndex=bpmToIndex % seq.size
+                        bpmToIndex=(bpmFromIndex+1)%seq.size
+                        bpmTransitionStart=now
+                    }
+                    val from=hueForColor(palette[seq[bpmFromIndex%seq.size]])
+                    val to=hueForColor(palette[seq[bpmToIndex%seq.size]])
+                    val elapsed=max(0L,now-bpmTransitionStart).toFloat()
+                    val beatMs=max(80L,beatPeriodMs).toFloat()
+                    var h=to
+                    var l=smoothLightLevel(level,dt)
+                    val p=elapsed/max(40f,beatMs/3f)
+                    when(bpmTransitionMode){
+                        "fade"->{h=interpolateHue(from,to,p.coerceIn(0f,1f));l=level}
+                        "crossfade"->{
+                            when{
+                                p<1f->{h=from;l=level*(1f-p)}
+                                p<2f->{h=to;l=0f}
+                                else->{h=to;l=level*(p-2f).coerceIn(0f,1f)}
+                            }
+                        }
+                        else->{h=to;l=level}
+                    }
+                    for(i in 0 until count)writeMusicPixel(frame,i,h,l,white.toFloat()/100f*255f)
+                }
+            }
+            "spectrum"->{
+                val assign=spectrumSaved.indices.filter { spectrumSaved[it] }
+                val colorCount=assign.size.coerceIn(0,10)
+                if(colorCount>0){
+                    for(i in 0 until count){
+                        val groupIndex=min(colorCount-1,(i*colorCount)/max(1,count))
+                        val bandIndex=if(colorCount<=3)spectrumBandMap[assign[groupIndex]].coerceIn(0,2) else groupIndex
+                        val range=bandRange(bandIndex,if(colorCount<=3)3 else colorCount)
+                        val e=audioBand(fd,range.first,range.second)
+                        val raw=(e*.72f).coerceIn(0f,1f)
+                        val l=smoothSpectrumLevel(i,raw,dt)
+                        val c=spectrumColors[assign[groupIndex]]
+                        val h=hueForColor(c)
+                        val whiteValue=c[3].coerceIn(0,255).toFloat()
+                        writeMusicPixel(frame,i,h,l,whiteValue)
+                    }
+                }
+            }
+            "vumeter"->{
+                val l=smoothLightLevel(max(leftLevel,rightLevel),dt)
+                val litCount=kotlin.math.ceil(l*count).toInt().coerceIn(0,count)
+                for(i in 0 until count){
+                    if(i>=litCount)continue
+                    val pos=if(count>1)i.toFloat()/(count-1) else 1f
+                    val base=when{
+                        pos<.70f->intArrayOf(0,255,0,0)
+                        pos<.90f->intArrayOf(255,255,0,0)
+                        else->intArrayOf(255,0,0,0)
+                    }
+                    val k=brightness/100f
+                    frame[i]=intArrayOf((base[0]*k).roundToInt(),(base[1]*k).roundToInt(),(base[2]*k).roundToInt(),0)
+                }
+            }
+        }
+
+        val universes=HashMap<Int,ByteArray>()
+        items.forEach{item->
+            val pixel=item.PixelID
+            val u=group.GUniverse+floor(pixel/128.0).toInt()
+            val ch=(pixel%128)*4
+            val dmx=universes.getOrPut(u){ByteArray(512)}
+            val p=frame.getOrElse(pixel){intArrayOf(0,0,0,0)}
+            dmx[ch]=p[0].toByte();dmx[ch+1]=p[1].toByte();dmx[ch+2]=p[2].toByte();dmx[ch+3]=p[3].toByte()
+        }
+        val routeIp=items.firstOrNull()?.hardwareDevice?.ip?.trim().orEmpty()
+        if(routeIp.isBlank())return
+        universes.forEach{(u,dmx)->sendSacnUniverse(if(group.allDevices) 8890 else group.groupItems.orEmpty().firstOrNull()?.Gport?.toIntOrNull() ?: 0,u,dmx,routeIp)}
     }
 
-    private fun spectrumFrame(samples:ShortArray,n:Int,count:Int):List<IntArray>{
-        val out=MutableList(count){intArrayOf(0,0,0,0)}
-        val colorCount=activeColorCount(spectrumSaved).coerceIn(1,10)
-        val half=min(1024,n/2)
-        for(b in 0 until colorCount){
-            val low:Double;val high:Double
-            if(colorCount<=3){
-                low=when(spectrumBandMap[b].coerceIn(0,2)){0->80.0;1->700.0;else->4000.0}
-                high=when(spectrumBandMap[b].coerceIn(0,2)){0->700.0;1->4000.0;else->20000.0}
-            }else{
-                low=80.0*Math.pow(20000.0/80.0,b.toDouble()/colorCount);high=80.0*Math.pow(20000.0/80.0,(b+1).toDouble()/colorCount)
+    private fun frequencyByteData(samples:ShortArray,n:Int):ByteArray{
+        val size=512
+        val real=DoubleArray(size)
+        val imag=DoubleArray(size)
+        var p=0
+        var t=0
+        while(p+1<n && t<size){
+            val mono=(samples[p].toInt()+samples[p+1].toInt())/(2.0*32768.0)
+            val window=0.42-0.5*kotlin.math.cos(2.0*Math.PI*t/(size-1))+0.08*kotlin.math.cos(4.0*Math.PI*t/(size-1))
+            real[t]=mono*window
+            p+=2
+            t++
+        }
+
+        // Android AudioRecord does not expose Web Audio's AnalyserNode.
+        // Reproduce the PC analyser's 512-point frequency path here: the
+        // same Blackman window and the same 0.05 magnitude smoothing used by
+        // the PC MusicEngine's AnalyserNode configuration.
+        var j=0
+        for(i in 1 until size){
+            var bit=size shr 1
+            while(j and bit != 0){ j=j xor bit; bit=bit shr 1 }
+            j=j xor bit
+            if(i<j){
+                val tr=real[i];real[i]=real[j];real[j]=tr
+                val ti=imag[i];imag[i]=imag[j];imag[j]=ti
             }
-            val k0=max(1,(low*half/44100.0).toInt());val k1=min(half-1,max(k0+1,(high*half/44100.0).toInt()))
-            var mag=0.0
-            for(k in k0..k1){var re=0.0;var im=0.0;val step=max(1,n/(half*2));for(i in 0 until min(n,2048) step step){val x=samples[i].toDouble()/32768.0;val angle=2.0*Math.PI*k*i/n;re+=x*cos(angle);im-=x*sin(angle)};mag+=sqrt(re*re+im*im)/max(1,n)}
-            val v=(mag*18.0).coerceIn(0.0,1.0);val col=scaled(spectrumColors[b],v.toFloat())
-            if(colorCount<=3){for(i in 0 until count){val ratio=i.toDouble()/max(1,count-1);val band=when{ratio<.33->0;ratio<.66->1;else->2};if(spectrumBandMap[b].coerceIn(0,2)==band)out[i]=col.copyOf()}}
-            else{val start=(b*count)/colorCount;val end=max(start+1,((b+1)*count)/colorCount);for(i in start until min(count,end))out[i]=col.copyOf()}
+        }
+        var len=2
+        while(len<=size){
+            val ang=-2.0*Math.PI/len
+            val wLenR=kotlin.math.cos(ang)
+            val wLenI=kotlin.math.sin(ang)
+            var i=0
+            while(i<size){
+                var wr=1.0
+                var wi=0.0
+                for(k in 0 until len/2){
+                    val uR=real[i+k]
+                    val uI=imag[i+k]
+                    val vR=real[i+k+len/2]*wr-imag[i+k+len/2]*wi
+                    val vI=real[i+k+len/2]*wi+imag[i+k+len/2]*wr
+                    real[i+k]=uR+vR
+                    imag[i+k]=uI+vI
+                    real[i+k+len/2]=uR-vR
+                    imag[i+k+len/2]=uI-vI
+                    val nwr=wr*wLenR-wi*wLenI
+                    wi=wr*wLenI+wi*wLenR
+                    wr=nwr
+                }
+                i+=len
+            }
+            len=len shl 1
+        }
+
+        val out=ByteArray(256)
+        for(k in 0 until 256){
+            val mag=2.0*sqrt(real[k]*real[k]+imag[k]*imag[k])/size
+            val smoothed=frequencySmoothing[k]*0.05+mag*0.95
+            frequencySmoothing[k]=smoothed.toFloat()
+            val db=20.0*log10(max(1e-8,smoothed))
+            out[k]=((db+100.0)/70.0*255.0).roundToInt().coerceIn(0,255).toByte()
         }
         return out
     }
 
-    private fun rgb(r:Int,g:Int,b:Int)=intArrayOf(r,g,b,0)
-    private fun scaled(c:IntArray,v:Float=1f)=intArrayOf((c[0]*v).toInt(),(c[1]*v).toInt(),(c[2]*v).toInt(),(c[3]*v).toInt())
-    private fun hsv(h:Float,s:Float,v:Float):IntArray{
-        val c=Color.HSVToColor(floatArrayOf((h%360f+360f)%360f,s,v.coerceIn(0f,1f)))
-        return intArrayOf(Color.red(c),Color.green(c),Color.blue(c),0)
+    private fun audioBand(fd:ByteArray,a:Float,b:Float):Float{
+        val lo=max(0,floor(a*255f).toInt())
+        val hi=min(255,max(lo+1,kotlin.math.ceil(b*255f).toInt()))
+        var sum=0f
+        var n=0
+        for(i in lo until hi){sum+=(fd[i].toInt() and 0xff)/255f;n++}
+        return if(n>0)sum/n else 0f
     }
 
-    private fun sendSacn(frame:List<IntArray>,items:List<HardwareGroupItem>){
-        val universe=(requireActivity() as ControllerActivity).getFrame().optInt("GUniverse",32000).coerceIn(32000,32500)
-        var offset=0
-        while(offset<frame.size){
-            val chunk=frame.subList(offset,min(offset+128,frame.size))
-            sendSacnUniverse(universe+(offset/128),chunk)
-            offset+=chunk.size
+    private fun bandRange(index:Int,count:Int):Pair<Float,Float>{
+        val minHz=80.0
+        val maxHz=20000.0
+        val nyquist=22050.0
+        val bands=maxOf(1,count)
+        val i=index.coerceIn(0,bands-1)
+        val lo=minHz*Math.pow(maxHz/minHz,i.toDouble()/bands)
+        val hi=minHz*Math.pow(maxHz/minHz,(i+1).toDouble()/bands)
+        return (lo/nyquist).toFloat() to (hi/nyquist).toFloat()
+    }
+
+    private fun interpolateHue(a:Float,b:Float,t:Float):Float{
+        val tc=t.coerceIn(0f,1f)
+        var d=((b-a+540f)%360f)-180f
+        return (a+d*tc)%360f
+    }
+
+    private fun closeMusicSacnSocket(){
+        try{musicSacnSocket?.close()}catch(_:Exception){}
+        musicSacnSocket=null
+        musicSacnNetworkInterface=null
+        musicSacnRouteIp=""
+    }
+
+    private fun sendSacnUniverse(gPort:Int,universe:Int,dmx:ByteArray,routeIp:String){
+        if(gPort<1024 || gPort==8889 || gPort==6454 || gPort==5568) return
+        if(universe !in 32000..32500)return
+        try{
+            if(musicSacnSocket==null || musicSacnRouteIp!=routeIp){
+                closeMusicSacnSocket()
+                val socket=MulticastSocket()
+                socket.timeToLive=1
+                socket.reuseAddress=true
+                musicSacnNetworkInterface=findInterfaceForRoute(routeIp)
+                if(musicSacnNetworkInterface!=null)socket.networkInterface=musicSacnNetworkInterface
+                musicSacnSocket=socket
+                musicSacnRouteIp=routeIp
+            }
+            val socket=musicSacnSocket ?: return
+            val seq=((musicSequences[universe] ?: 0)+1) and 255
+            musicSequences[universe]=seq
+            val p=ByteArray(127+512)
+            fun u16(o:Int,v:Int){p[o]=((v shr 8) and 255).toByte();p[o+1]=(v and 255).toByte()}
+            u16(0,0x0010);u16(2,0)
+            byteArrayOf(0x41,0x53,0x43,0x2d,0x45,0x31,0x2e,0x31,0x37,0,0,0).copyInto(p,4)
+            u16(16,0x727e);u32(p,18,4,musicSequenceCid)
+            musicSequenceCid.copyInto(p,22)
+            u16(38,0x704d);u32(p,40,2,musicSequenceCid)
+            "MobileD Music".toByteArray(Charsets.US_ASCII).copyInto(p,44)
+            p[108]=100
+            u16(109,0)
+            p[111]=seq.toByte()
+            u16(112,0)
+            u16(114,universe)
+            u16(116,0x720b)
+            p[118]=2;p[119]=0xA1.toByte()
+            u16(120,0)
+            u16(122,1)
+            u16(124,513)
+            p[126]=0
+            dmx.copyInto(p,127,0,512)
+            val addr=InetAddress.getByName("239.255.${(universe shr 8) and 255}.${universe and 255}")
+            socket.send(DatagramPacket(p,p.size,addr,gPort))
+        }catch(e:Exception){
+            closeMusicSacnSocket()
+            android.util.Log.e("MobileDMusic","sACN send failed",e)
         }
     }
 
-    private fun sendSacnUniverse(universe:Int,pixels:List<IntArray>){
-        try{
-            val propCount=1+pixels.size*4
-            val total=130+pixels.size*4
-            val p=ByteArray(total)
-            fun u16(o:Int,v:Int){p[o]=((v shr 8) and 255).toByte();p[o+1]=(v and 255).toByte()}
-            p[0]=0;p[1]=0x10;p[2]=0;p[3]=0;"ASC-E1.17".toByteArray().copyInto(p,4)
-            u16(16,0x7000 or (total-16))
-            for(i in 0 until 16)p[22+i]=(i+1).toByte()
-            "MobileD Android Music".padEnd(64,'\u0000').toByteArray().copyInto(p,44)
-            p[108]=100;p[109]=0;p[110]=0;p[111]=(frameSeq++ and 255).toByte();u16(113,universe)
-            u16(115,0x7000 or (total-115));p[118]=2;p[119]=0xA1.toByte();p[120]=0;p[121]=0;p[122]=2;u16(123,0);u16(125,1);u16(127,propCount);p[129]=0
-            var o=130
-            pixels.forEach{c->p[o]=c[0].toByte();p[o+1]=c[1].toByte();p[o+2]=c[2].toByte();p[o+3]=c[3].toByte();o+=4}
-            val addr=InetAddress.getByName("239.255.${(universe shr 8) and 255}.${universe and 255}")
-            MulticastSocket().use{it.timeToLive=1;it.send(DatagramPacket(p,p.size,addr,5568))}
-        }catch(_:Exception){}
+    private fun findInterfaceForRoute(routeIp:String):NetworkInterface?{
+        return try{
+            val target=InetAddress.getByName(routeIp) as? Inet4Address ?: return null
+            val targetBytes=target.address
+            val en=NetworkInterface.getNetworkInterfaces()
+            while(en.hasMoreElements()){
+                val ni=en.nextElement()
+                if(!ni.isUp || ni.isLoopback)continue
+                for(ia in ni.interfaceAddresses){
+                    val addr=ia.address as? Inet4Address ?: continue
+                    val prefix=ia.networkPrefixLength.toInt()
+                    if(prefix<=0 || prefix>32)continue
+                    val mask=if(prefix==32)0xffffffffL else (0xffffffffL shl (32-prefix)) and 0xffffffffL
+                    val a=java.nio.ByteBuffer.wrap(addr.address).int.toLong() and 0xffffffffL
+                    val b=java.nio.ByteBuffer.wrap(targetBytes).int.toLong() and 0xffffffffL
+                    if((a and mask)==(b and mask))return ni
+                }
+            }
+            null
+        }catch(_:Exception){null}
+    }
+
+    private fun u32(p:ByteArray,o:Int,v:Int,cid:ByteArray){
+        p[o]=((v ushr 24) and 255).toByte()
+        p[o+1]=((v ushr 16) and 255).toByte()
+        p[o+2]=((v ushr 8) and 255).toByte()
+        p[o+3]=(v and 255).toByte()
     }
 
     private fun listener(action:()->Unit)=object:AdapterView.OnItemSelectedListener{

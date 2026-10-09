@@ -31,38 +31,38 @@ class MicrophoneEffectFragment : BaseFragment<FragmentMicrophoneEffectBinding>()
         isSensitivity = true
     }
 
+    private fun legacySpeedPrefs() = requireContext().getSharedPreferences("mobiled_legacy_effect_settings", 0)
+
+    private fun loadMicSpeed(effectId: Int): Int {
+        val shared = legacySpeedPrefs()
+        val effectParams = requireContext().getSharedPreferences("mobiled_legacy_effect_params_$effectId", 0)
+        val value = when {
+            shared.contains("speed_$effectId") -> shared.getInt("speed_$effectId", 0)
+            effectParams.contains("speed") -> effectParams.getInt("speed", 0)
+            else -> 0
+        }
+        return value.coerceIn(0, 100)
+    }
+
+    private fun saveMicSpeed(effectId: Int, speed: Int) {
+        val value = speed.coerceIn(0, 100)
+        legacySpeedPrefs().edit().putInt("speed_$effectId", value).apply()
+        requireContext().getSharedPreferences("mobiled_legacy_effect_params_$effectId", 0)
+            .edit().putInt("speed", value).apply()
+    }
+
     fun bindEffectSettings(effect: Effect) {
         try {
             this.effect = effect
             bindEffect()
-
             viewBinding.viewExtraPart.viewSlider.valueFrom = 0F
             viewBinding.viewExtraPart.viewSlider.valueTo = 100F
 
-            var speed = 100
-            try {
-                var prevCommand = (activity as ActionListener?)?.getFrame()
-                var effect = prevCommand?.getInt("GLights") ?: -1
-                if (effect == 10 || effect == 11) {
-                    speed = prevCommand?.getInt("Speed") ?: 100
-                    viewBinding.viewExtraPart.viewSlider.value = (100 - speed * 1F)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            viewBinding.viewExtraSliderPreview.text = "${speed}"
-            (activity as ActionListener?)?.onCommandChanged(
-                GLights = effect.gLight,
-                Speed = speed,
-                Brightness = 0,
-                hue = 0,
-                red = 0,
-                green = 0,
-                blue = 0,
-                white = 0,
-            )
-        } catch (e: Exception) {
-
+            val speed = loadMicSpeed(effect.gLight)
+            val sensitivity = 100 - speed
+            viewBinding.viewExtraPart.viewSlider.value = sensitivity.toFloat()
+            viewBinding.viewExtraSliderPreview.text = "$sensitivity%"
+        } catch (_: Exception) {
         }
     }
 
@@ -79,12 +79,14 @@ class MicrophoneEffectFragment : BaseFragment<FragmentMicrophoneEffectBinding>()
             effect = Effect("Mic Random", 10, R.drawable.eff_mic).apply {
                 isSensitivity = true
             }
+            (activity as ControllerActivity?)?.selectLegacyEffect(10)
             bindEffectSettings(effect)
         }
         viewBinding.viewRainbow.setOnClickListener {
             effect = Effect("Mic Rainbow", 11, R.drawable.eff_mic_rainbow).apply {
                 isSensitivity = true
             }
+            (activity as ControllerActivity?)?.selectLegacyEffect(11)
             bindEffectSettings(effect)
         }
         viewBinding.root.post { bindEffect() }
@@ -98,10 +100,13 @@ class MicrophoneEffectFragment : BaseFragment<FragmentMicrophoneEffectBinding>()
                 bindTab(1)
             }
             viewBinding.viewExtraSettingText.setText("Sensitivity")
+            viewBinding.viewExtraPart.viewSlider.clearOnChangeListeners()
             viewBinding.viewExtraPart.viewSlider.addOnChangeListener { slider, value, fromUser ->
                 if (fromUser) {
+                    val speed = 100 - value.toInt()
+                    saveMicSpeed(effect.gLight, speed)
                     (activity as ActionListener?)?.onCommandChanged(
-                        GLights = effect.gLight, Speed = 100 - value.toInt()
+                        GLights = effect.gLight, Speed = speed
                     )
                 }
                 viewBinding.viewExtraSliderPreview.text = "${100 - value.toInt()}"

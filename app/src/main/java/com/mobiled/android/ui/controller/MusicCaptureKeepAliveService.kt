@@ -63,7 +63,13 @@ class MusicCaptureKeepAliveService : Service() {
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    inner class LocalBinder : android.os.Binder() {
+        fun getService(): MusicCaptureKeepAliveService = this@MusicCaptureKeepAliveService
+    }
+
+    private val binder = LocalBinder()
+
+    override fun onBind(intent: Intent?): IBinder = binder
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < 26) return

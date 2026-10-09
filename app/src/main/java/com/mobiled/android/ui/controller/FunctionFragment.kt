@@ -18,7 +18,12 @@ class FunctionFragment : BaseFragment<FragmentFunctionBinding>() {
         super.onViewCreated(view, savedInstanceState)
         bindTab(0)
         viewBinding.viewEffects.setOnClickListener { if (currentTabPosition != 0) bindTab(0) }
-        viewBinding.viewCustom.setOnClickListener { if (currentTabPosition != 1) bindTab(1) }
+        viewBinding.viewCustom.setOnClickListener {
+            if (currentTabPosition != 1) {
+                val controller = activity as? ControllerActivity ?: return@setOnClickListener
+                if (controller.canOpenDistributedEffects("Matrix")) bindTab(1)
+            }
+        }
     }
 
     var currentTabPosition = 0
@@ -33,8 +38,15 @@ class FunctionFragment : BaseFragment<FragmentFunctionBinding>() {
             viewBinding.viewEffects.setBackgroundResource(R.drawable.white_box_corner)
             fragment = EffectListFragment.newInstance()
         } else {
-            viewBinding.viewCustom.setBackgroundResource(R.drawable.white_box_corner)
-            fragment = MatrixFragment.newInstance()
+            val controller = activity as? ControllerActivity
+            if (controller == null || !controller.canOpenDistributedEffects("Matrix")) {
+                currentTabPosition = 0
+                viewBinding.viewEffects.setBackgroundResource(R.drawable.white_box_corner)
+                fragment = EffectListFragment.newInstance()
+            } else {
+                viewBinding.viewCustom.setBackgroundResource(R.drawable.white_box_corner)
+                fragment = MatrixFragment.newInstance()
+            }
         }
         childFragmentManager.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
         childFragmentManager.beginTransaction()

@@ -53,6 +53,8 @@ class EffectListFragment : Fragment() {
         effectList.add(Effect("Breath", 4, R.drawable.eff_breath).apply {
             isSpeed = true
             isHue = true
+            isColorBrightness = true
+            isWhite = true
         })
         effectList.add(Effect("Lightning", 5, R.drawable.eff_lightning).apply {
             isFrequency = true
@@ -81,8 +83,10 @@ class EffectListFragment : Fragment() {
 
 
         effectList.add(Effect("Heartbeat", 12, R.drawable.eff_heartbeat).apply {
-            isRGBW = true
             isSpeed = true
+            isHue = true
+            isColorBrightness = true
+            isWhite = true
         })
 
         effectListAdapter.effectList = effectList
@@ -93,8 +97,10 @@ class EffectListFragment : Fragment() {
         effectListAdapter.bindListener(object : EffectListAdapter.ItemListener {
             override fun onItemPressed(effect: Effect) {
                 if (effect.gLight == 10 || effect.gLight == 11) {
+                    (activity as ControllerActivity?)?.selectLegacyEffect(effect.gLight)
                     (activity as ActionListener?)?.showMicEffectPage(effect)
                 } else {
+                    (activity as ControllerActivity?)?.selectLegacyEffect(effect.gLight)
                     (parentFragment as FunctionFragment?)?.showEffectSetting(effect)
                 }
             }

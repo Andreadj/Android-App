@@ -8,8 +8,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.MotionEvent
 import android.widget.PopupMenu
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import com.mobiled.android.R
+import com.mobiled.android.base.AppSettingsManager
 import com.mobiled.android.base.comman.UdpClient
 import com.mobiled.android.databinding.ActivityHomeBinding
 import com.mobiled.android.ui.about.AboutFragment
@@ -43,6 +45,56 @@ class HomeActivity : com.mobiled.android.base.BaseActivity<ActivityHomeBinding, 
                 {
                     (getCurrentFragment() as HomeFragment)?.addDeviceByResult()
                 }
+            }
+        }
+
+    private val saveConfigurationLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            if (uri == null) return@registerForActivityResult
+            runCatching {
+                val json = AppSettingsManager.exportConfiguration(this@HomeActivity)
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(json.toString(2).toByteArray(Charsets.UTF_8))
+                } ?: throw IllegalStateException("Unable to open configuration file")
+                Toast.makeText(this@HomeActivity, "Configuration saved", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(this@HomeActivity, "Configuration save failed: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+
+    private val loadConfigurationLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            runCatching {
+                val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                    ?: throw IllegalStateException("Unable to open configuration file")
+                val configuration = org.json.JSONObject(text)
+                if (!AppSettingsManager.validateConfiguration(configuration)) {
+                    throw IllegalArgumentException("Unsupported MobileD configuration file")
+                }
+                showDialog(
+                    "Load Configuration",
+                    "Load this configuration? The current MobileD device and group configuration will be replaced.",
+                    "YES",
+                    { dialog, _ ->
+                        dialog.dismiss()
+                        runCatching {
+                            if (!AppSettingsManager.importConfiguration(this@HomeActivity, configuration)) {
+                                throw IllegalArgumentException("Invalid configuration")
+                            }
+                            if (getCurrentFragment() is HomeFragment) {
+                                (getCurrentFragment() as HomeFragment).addDeviceByResult()
+                            }
+                            Toast.makeText(this@HomeActivity, "Configuration loaded", Toast.LENGTH_SHORT).show()
+                        }.onFailure {
+                            Toast.makeText(this@HomeActivity, "Configuration load failed: ${it.message}", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    "No",
+                    { dialog, _ -> dialog.dismiss() }
+                )
+            }.onFailure {
+                Toast.makeText(this@HomeActivity, "Configuration load failed: ${it.message}", Toast.LENGTH_LONG).show()
             }
         }
 
@@ -121,6 +173,19 @@ class HomeActivity : com.mobiled.android.base.BaseActivity<ActivityHomeBinding, 
                     deviceActionLauncher.launch(
                         intent
                     )
+                } else if (menuItem.title?.equals("Reset to Default Settings") == true) {
+                    showDialog(
+                        "Reset Settings",
+                        "Restore all effect, color and preset settings to the MobileD default values? Devices, groups and network settings will be preserved.",
+                        "YES",
+                        { dialog, _ ->
+                            dialog.dismiss()
+                            AppSettingsManager.resetToDefaults(this@HomeActivity)
+                            Toast.makeText(this@HomeActivity, "Default settings restored", Toast.LENGTH_SHORT).show()
+                        },
+                        "No",
+                        { dialog, _ -> dialog.dismiss() }
+                    )
                 }
 
                 return@setOnMenuItemClickListener true
@@ -159,6 +224,16 @@ class HomeActivity : com.mobiled.android.base.BaseActivity<ActivityHomeBinding, 
             if (!(getCurrentFragment() is AboutFragment)) {
                 showFragment(R.id.viewContainer, AboutFragment.newInstance())
             }
+        }
+
+        binding.viewMenuItem6.setOnClickListener {
+            hideMenu()
+            saveConfigurationLauncher.launch("MobileD Configuration.mobiled")
+        }
+
+        binding.viewMenuItem7.setOnClickListener {
+            hideMenu()
+            loadConfigurationLauncher.launch(arrayOf("application/json", "text/json", "application/octet-stream"))
         }
 
         supportFragmentManager.addFragmentOnAttachListener { fragmentManager, fragment ->

@@ -17,4 +17,9 @@
         android:layout_height="wrap_content"
         android:title="Remove Devices"
         app:showAsAction="collapseActionView" />
+    <item
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:title="Reset to Default Settings"
+        app:showAsAction="collapseActionView" />
 </menu>

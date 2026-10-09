@@ -15,6 +15,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import com.mobiled.android.R
+import com.mobiled.android.adapters.GeneralUtil
 import com.mobiled.android.base.BaseFragment
 import com.mobiled.android.base.comman.UdpClient
 import com.mobiled.android.base.component.ColorPickerView
@@ -25,6 +26,8 @@ import com.mobiled.android.base.model.LightCommand
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.pow
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -78,6 +81,8 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     private var pickerBrightness = 100
     private var pickerWhite = 0
     private val colorSaved = BooleanArray(10)
+    // Preserve each effect configuration while switching between Matrix effects.
+    private val runtimeConfigs = mutableMapOf<Int, JSONObject>()
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -132,8 +137,14 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         root.findViewById<LinearLayout>(9004)?.visibility = View.GONE
         root.findViewById<LinearLayout>(9010)?.visibility = View.VISIBLE
         val spec = specs.first { it.id == id }
+        val members = onlineMembers()
+        val shouldSelect = members.any {
+            JSONObject(it.hardwareDevice?.deviceFrame.orEmpty()).optInt("GLights", -1) != id
+        }
         applyEffectDefaults(spec)
         loadSavedColors(spec)
+        val hasRuntimeConfig = restoreRuntimeConfig(id)
+        if (!shouldSelect && !hasRuntimeConfig) loadStateFromDiscovery(spec, members)
         rebuildControls(spec)
         preview.effect = id
         preview.speed = speed.progress
@@ -145,7 +156,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         preview.colors = colors.take(activeCount).map { it.copyOf() }
         preview.pixelCount = onlineMembers().size.coerceAtLeast(1)
         preview.startAnimation()
-        send()
+        if (shouldSelect) send()
     }
 
     private fun buildEffectCards() {
@@ -215,7 +226,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
                     setPadding(dp(6), dp(6), dp(6), dp(6))
-                    setBackgroundColor(if (colorSaved[i]) Color.rgb(colors[i][0], colors[i][1], colors[i][2]) else Color.rgb(70,70,70))
+                    setBackgroundColor(if (colorSaved[i]) colors[i].let { rgbwPreviewColor(it) } else Color.rgb(70,70,70))
                     addView(TextView(requireContext()).apply {
                         text = "${i + 1}"
                         gravity = Gravity.CENTER
@@ -241,7 +252,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
                 }
                 bindThreeSecondSave(swatch,
                     onSave = { saveColor(i); Toast.makeText(requireContext(), "Color ${i + 1} saved", Toast.LENGTH_SHORT).show() },
-                    onClick = { /* The picker is independent; normal tap does not select or modify a color slot. */ }
+                    onClick = { selectColorSlot(i, spec) }
                 )
                 cell.addView(swatch, LinearLayout.LayoutParams(-1, dp(92)))
                 cell.addView(reset, LinearLayout.LayoutParams(-1, dp(40)).apply { topMargin = dp(8) })
@@ -301,7 +312,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         root.post { (root.parent as? ScrollView)?.smoothScrollTo(0, 0) }
     }
 
-    private fun aPixelCount(): Int = requireActivity().let { (it as ControllerActivity).group?.groupItems?.size ?: 1 }
+    private fun aPixelCount(): Int = onlineMembers().size.coerceAtLeast(1)
 
     private fun addStepSlider(container: LinearLayout, label: String, value: Int, minValue: Int, maxValue: Int, suffix: String, onChange: (Int) -> Unit) {
         val labelRow=LinearLayout(requireContext()).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
@@ -392,12 +403,42 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         panel.addView(box, LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=12 })
     }
 
+    private fun loadStateFromDiscovery(spec: Spec, members: List<HardwareGroupItem>) {
+        val frame = members.asSequence()
+            .mapNotNull { it.hardwareDevice?.deviceFrame?.takeIf { raw -> raw.isNotBlank() } }
+            .mapNotNull { runCatching { JSONObject(it) }.getOrNull() }
+            .firstOrNull { it.optInt("GLights", -1) == effectId }
+            ?: return
+
+        speed.progress = frame.optInt("Speed", speed.progress).coerceIn(0, 100)
+        brightness.progress = frame.optInt("Brightness", brightness.progress).coerceIn(0, 255)
+        customValues[0] = frame.optInt("Custom1", customValues[0]).coerceIn(0, 100)
+        customValues[1] = frame.optInt("Custom2", customValues[1]).coerceIn(0, 100)
+        customValues[2] = frame.optInt("Custom3", customValues[2]).coerceIn(0, 100)
+        onOff1 = frame.optInt("OnOff1", onOff1)
+        onOff2 = frame.optInt("OnOff2", onOff2)
+        randomEnabled = frame.optInt("Random", if (randomEnabled) 1 else 0) != 0
+
+        val array = frame.optJSONArray("Colors")
+        if (array != null) {
+            for (i in 0 until min(10, array.length())) {
+                val value = array.optJSONArray(i) ?: continue
+                colors[i][0] = value.optInt(0, colors[i][0]).coerceIn(0, 255)
+                colors[i][1] = value.optInt(1, colors[i][1]).coerceIn(0, 255)
+                colors[i][2] = value.optInt(2, colors[i][2]).coerceIn(0, 255)
+                colors[i][3] = value.optInt(3, colors[i][3]).coerceIn(0, 255)
+                colorSaved[i] = true
+            }
+        }
+    }
+
     private fun applyEffectDefaults(spec: Spec) {
         speed.progress = when (spec.id) { 103 -> 70; 105 -> 0; 106 -> 100; else -> 50 }
         brightness.progress = 255
         customValues.fill(0); onOff1 = 0; onOff2 = 0; randomEnabled = false
         when (spec.id) {
             101 -> { customValues[0]=10; customValues[1]=10; customValues[2]=10 }
+            104 -> { onOff2 = 1 }
             102 -> { customValues[0]=36; customValues[1]=47; customValues[2]=25 }
             103 -> { customValues[0]=60; customValues[2]=0 }
             105 -> { customValues[0]=0 }
@@ -405,6 +446,23 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             108 -> { customValues[0]=45; customValues[1]=100 }
         }
         if (spec.id == 101 || spec.id == 102 || spec.id == 107 || spec.id == 110 || spec.id == 111) randomEnabled = false
+    }
+
+    private fun rgbwPreviewColor(c: IntArray): Int {
+        val r = c.getOrElse(0) { 0 }.coerceIn(0, 255)
+        val g = c.getOrElse(1) { 0 }.coerceIn(0, 255)
+        val b = c.getOrElse(2) { 0 }.coerceIn(0, 255)
+        val w = c.getOrElse(3) { 0 }.coerceIn(0, 255)
+        if (w == 0) return Color.rgb(r, g, b)
+        if (r == 0 && g == 0 && b == 0) return Color.rgb(w, w, w)
+        // Match PC App rgbwDisplayRgb(): W contributes up to 80% of the
+        // remaining distance to white, while preserving the RGB hue.
+        val mix = (w / 255f) * 0.8f
+        return Color.rgb(
+            (r + (255 - r) * mix).roundToInt().coerceIn(0, 255),
+            (g + (255 - g) * mix).roundToInt().coerceIn(0, 255),
+            (b + (255 - b) * mix).roundToInt().coerceIn(0, 255)
+        )
     }
 
     private fun loadSavedColors(spec: Spec) {
@@ -424,7 +482,10 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         for (i in 0 until spec.colors.coerceAtMost(10)) {
             val d = defaults.getOrNull(i) ?: intArrayOf(0,0,0,0)
             colors[i][0]=p.getInt("$i.r",d[0]); colors[i][1]=p.getInt("$i.g",d[1]); colors[i][2]=p.getInt("$i.b",d[2]); colors[i][3]=p.getInt("$i.w",d[3])
-            colorSaved[i] = p.getBoolean("$i.saved", i < min(3, spec.colors))
+            // Match PC App matrixEffectDefaults(): every default palette
+            // entry defined by the effect is active. There is no generic
+            // "first three" rule.
+            colorSaved[i] = p.getBoolean("$i.saved", defaults.getOrNull(i) != null)
         }
     }
 
@@ -448,7 +509,9 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         colorSaved[index] = false
         requireContext().getSharedPreferences("matrix_colors_${spec.id}", Context.MODE_PRIVATE).edit()
             .remove("$index.r").remove("$index.g").remove("$index.b").remove("$index.w").remove("$index.saved").apply()
+        saveRuntimeConfig()
         rebuildControls(spec)
+        syncPreview()
         send()
     }
 
@@ -461,8 +524,21 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         colorSaved[index] = true
         requireContext().getSharedPreferences("matrix_colors_$effectId", Context.MODE_PRIVATE).edit()
             .putInt("$index.r", c[0]).putInt("$index.g", c[1]).putInt("$index.b", c[2]).putInt("$index.w", c[3]).putBoolean("$index.saved", true).apply()
-        rebuildControls(specs.first { it.id == effectId })
+        val spec = specs.first { it.id == effectId }
+        saveRuntimeConfig()
+        rebuildControls(spec)
+        syncPreview()
         send()
+    }
+
+    private fun selectColorSlot(index: Int, spec: Spec) {
+        selectedColorIndex = index
+        val c = colors[index].copyOf()
+        pickerColor = c
+        pickerWhite = (c[3] * 100f / 255f).roundToInt().coerceIn(0, 100)
+        pickerBrightness = pickerBrightness.coerceIn(0, 100)
+        rebuildControls(spec)
+        syncPreview()
     }
 
     private fun renderInlineColorEditor(panel: LinearLayout, count: Int) {
@@ -475,11 +551,27 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, dp(12), 0, dp(8))
         })
+        val pickerFrame = FrameLayout(requireContext())
         val picker = ColorPickerView(requireContext())
-        host.addView(picker, LinearLayout.LayoutParams(-1, dp(360)))
-        picker.setColor(255, pickerColor[0], pickerColor[1], pickerColor[2])
-        picker.setColorAlpha(com.mobiled.android.adapters.GeneralUtil.generateAlphaByWhiteBrightness(pickerWhite.toFloat(), 100f))
-        picker.setBrightness(pickerBrightness)
+        pickerFrame.addView(picker, FrameLayout.LayoutParams(-1, dp(360)))
+
+        val hue = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        fun hueButton(symbol: String, click: () -> Unit) = TextView(requireContext()).apply {
+            text = symbol
+            gravity = Gravity.CENTER
+            textSize = 20f
+            setTextColor(Color.BLACK)
+            setBackgroundResource(R.drawable.white_box)
+            setOnClickListener { click() }
+        }
+        hue.addView(hueButton("− REV") { picker.decreaseHue() }, LinearLayout.LayoutParams(0, dp(36), 1f).apply { rightMargin = dp(6) })
+        hue.addView(hueButton("+ FWD") { picker.increaseHue() }, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(6) })
+        pickerFrame.addView(hue, FrameLayout.LayoutParams(-1, dp(36), Gravity.BOTTOM).apply { leftMargin = dp(4); rightMargin = dp(4); bottomMargin = dp(2) })
+        host.addView(pickerFrame, LinearLayout.LayoutParams(-1, dp(360)))
+
         val readout = TextView(requireContext()).apply {
             gravity = Gravity.CENTER
             textSize = 13f
@@ -487,47 +579,43 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             setPadding(0, dp(8), 0, dp(8))
         }
         host.addView(readout, LinearLayout.LayoutParams(-1, -2))
-        fun updateFromPicker(argb: IntArray) {
-            pickerColor[0] = argb[1].coerceIn(0, 255)
-            pickerColor[1] = argb[2].coerceIn(0, 255)
-            pickerColor[2] = argb[3].coerceIn(0, 255)
+        fun updateFromPicker(centerColor: Int) {
+            // Store the RGB component at the selected Color Brightness, and
+            // store White as its own protocol channel. Do not store the
+            // composited center-preview RGB as the RGB channels: that would
+            // bake W into RGB and make the saved RGBW preview incorrect.
+            val hsv = picker.getHsv().copyOf()
+            // ColorPickerView.getHsv() already contains its configured V
+            // (Color Brightness); applying the slider again would square it.
+            val rgb = Color.HSVToColor(hsv)
+            pickerColor[0] = Color.red(rgb).coerceIn(0, 255)
+            pickerColor[1] = Color.green(rgb).coerceIn(0, 255)
+            pickerColor[2] = Color.blue(rgb).coerceIn(0, 255)
+            pickerColor[3] = (pickerWhite * 255f / 100f).roundToInt().coerceIn(0, 255)
             readout.text = "RGB ${pickerColor[0]} / ${pickerColor[1]} / ${pickerColor[2]}    W ${pickerColor[3]}"
         }
         picker.setColorChangedListener(object : ColorPickerView.OnColorChangedListener {
             override fun colorChanged(centerColor: Int, argb: IntArray, hsv: FloatArray) {
-                updateFromPicker(argb)
+                updateFromPicker(centerColor)
             }
         })
-        updateFromPicker(picker.toArgb())
+        picker.setColor(255, pickerColor[0], pickerColor[1], pickerColor[2])
+        picker.setBrightness(pickerBrightness)
+        picker.setColorAlpha(GeneralUtil.generateAlphaByWhiteBrightness(pickerWhite.toFloat(), pickerBrightness.toFloat()))
+        updateFromPicker(Color.HSVToColor(picker.getHsv()))
         addStepSlider(host, "Color Brightness", pickerBrightness, 0, 100, "%") { value ->
             pickerBrightness = value
             picker.setBrightness(value)
-            updateFromPicker(picker.toArgb())
+            picker.setColorAlpha(GeneralUtil.generateAlphaByWhiteBrightness(pickerWhite.toFloat(), pickerBrightness.toFloat()))
+            updateFromPicker(Color.HSVToColor(picker.getHsv()))
         }
         addStepSlider(host, "White Brightness", pickerWhite, 0, 100, "%") { value ->
             pickerWhite = value
             pickerColor[3] = (value * 255f / 100f).roundToInt().coerceIn(0, 255)
-            picker.setColorAlpha(value.toFloat())
-            updateFromPicker(picker.toArgb())
+            picker.setColorAlpha(GeneralUtil.generateAlphaByWhiteBrightness(pickerWhite.toFloat(), pickerBrightness.toFloat()))
+            updateFromPicker(Color.HSVToColor(picker.getHsv()))
         }
-        val hue = LinearLayout(requireContext()).apply { gravity = Gravity.CENTER }
-        hue.addView(TextView(requireContext()).apply {
-            text = "−"
-            gravity = Gravity.CENTER
-            textSize = 22f
-            setTextColor(Color.BLACK)
-            setBackgroundResource(R.drawable.white_box)
-            setOnClickListener { picker.decreaseHue() }
-        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { rightMargin = dp(6) })
-        hue.addView(TextView(requireContext()).apply {
-            text = "+"
-            gravity = Gravity.CENTER
-            textSize = 22f
-            setTextColor(Color.BLACK)
-            setBackgroundResource(R.drawable.white_box)
-            setOnClickListener { picker.increaseHue() }
-        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(6) })
-        host.addView(hue, LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(6) })
+
     }
 
     private fun savePreset(id: Int, index: Int) {
@@ -542,7 +630,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         customValues[0]=o.optInt("custom1",customValues[0]);customValues[1]=o.optInt("custom2",customValues[1]);customValues[2]=o.optInt("custom3",customValues[2])
         onOff1=o.optInt("onoff1",onOff1);onOff2=o.optInt("onoff2",onOff2);randomEnabled=o.optBoolean("random",randomEnabled)
         o.optJSONArray("colors")?.let{a->for(i in 0 until min(10,a.length())){val c=a.getJSONObject(i);colors[i][0]=c.optInt("r",colors[i][0]);colors[i][1]=c.optInt("g",colors[i][1]);colors[i][2]=c.optInt("b",colors[i][2]);colors[i][3]=c.optInt("w",colors[i][3]);colorSaved[i]=c.optBoolean("saved",colorSaved[i])}}
-        val spec=specs.first{it.id==id};rebuildControls(spec);send();preview.invalidate()
+        val spec=specs.first{it.id==id};saveRuntimeConfig();rebuildControls(spec);send();preview.invalidate()
     }
 
     private fun snapshot(): JSONObject {
@@ -550,30 +638,62 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         val a=JSONArray();colors.forEachIndexed{index,c->a.put(JSONObject().put("r",c[0]).put("g",c[1]).put("b",c[2]).put("w",c[3]).put("saved",colorSaved[index]))};o.put("colors",a);return o
     }
 
-    private fun onlineMembers(): List<HardwareGroupItem> {
-        val a = requireActivity() as ControllerActivity
-        return a.group?.groupItems.orEmpty().filter {
-            val d = it.hardwareDevice
-            !d?.deviceFrame.isNullOrBlank() && !d?.ip.isNullOrBlank()
-        }.sortedBy { it.hardwareDevice?.ApName.orEmpty() }
+    private fun saveRuntimeConfig() {
+        if (!::speed.isInitialized || !::brightness.isInitialized) return
+        runtimeConfigs[effectId] = snapshot()
     }
 
-    private fun pixelId(item: HardwareGroupItem): Int = item.PixelID.coerceIn(0, 1023)
+    private fun restoreRuntimeConfig(id: Int): Boolean {
+        val o = runtimeConfigs[id] ?: return false
+        speed.progress = o.optInt("speed", speed.progress).coerceIn(0, 100)
+        brightness.progress = o.optInt("brightness", brightness.progress).coerceIn(0, 255)
+        customValues[0] = o.optInt("custom1", customValues[0]).coerceIn(0, 100)
+        customValues[1] = o.optInt("custom2", customValues[1]).coerceIn(0, 100)
+        customValues[2] = o.optInt("custom3", customValues[2]).coerceIn(0, 100)
+        onOff1 = o.optInt("onoff1", onOff1)
+        onOff2 = o.optInt("onoff2", onOff2)
+        randomEnabled = o.optBoolean("random", randomEnabled)
+        o.optJSONArray("colors")?.let { a ->
+            for (i in 0 until min(10, a.length())) {
+                val c = a.optJSONObject(i) ?: continue
+                colors[i][0] = c.optInt("r", colors[i][0]).coerceIn(0, 255)
+                colors[i][1] = c.optInt("g", colors[i][1]).coerceIn(0, 255)
+                colors[i][2] = c.optInt("b", colors[i][2]).coerceIn(0, 255)
+                colors[i][3] = c.optInt("w", colors[i][3]).coerceIn(0, 255)
+                colorSaved[i] = c.optBoolean("saved", colorSaved[i])
+            }
+        }
+        return true
+    }
+
+    private fun onlineMembers(): List<HardwareGroupItem> {
+        val a = requireActivity() as ControllerActivity
+        return a.getControllerVirtualStripSnapshot().sortedBy { it.PixelID }
+    }
+
+    private fun pixelId(item: HardwareGroupItem): Int = item.PixelID.coerceIn(0, 255)
+
+    private fun matrixBaseUniverse(items: List<HardwareGroupItem>): Int? {
+        val group = (requireActivity() as ControllerActivity).group ?: return null
+        return group.GUniverse.takeIf { it in 32000..32500 }
+    }
 
     private fun send() {
+        if (::speed.isInitialized && ::brightness.isInitialized) saveRuntimeConfig()
         val a = requireActivity() as ControllerActivity
-        val base = a.getFrame()
-        val items = onlineMembers()
-        if (items.isEmpty()) {
-            val d = a.device ?: return
-            val c = LightCommand().apply { fromJson(base); GLights=effectId; GState="X"; GPort="8889"; PixelID=0; PixelCount=1; Speed=speed.progress; Brightness=brightness.progress; applyColors(this) }
-            d.deviceFrame = c.toJsonString()
-            UdpClient.getClient(requireContext()).writeString(c.toJsonString(), d.ip ?: return, if (d.port > 0) d.port.toInt() else 8889)
+        if (!a.canOpenDistributedEffects("Matrix")) return
+        val group = a.group ?: run {
+            Toast.makeText(requireContext(), "Matrix is available for groups only.", Toast.LENGTH_LONG).show()
             return
         }
-        val ids = items.map { pixelId(it) }
-        val allGroupItems = a.group?.groupItems.orEmpty()
-        val allIds = allGroupItems.map { pixelId(it) }.sorted()
+        val items = onlineMembers()
+        if (items.isEmpty()) {
+            Toast.makeText(requireContext(), "No reachable MobileD in the Matrix strip.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val allGroupItems = group.groupItems.orEmpty()
+        val ids = allGroupItems.map { pixelId(it) }.sorted()
         val masters = allGroupItems.filter { it.GState.equals("M", ignoreCase = true) }
         if (masters.size != 1) {
             Toast.makeText(requireContext(), "Matrix requires exactly one Master.", Toast.LENGTH_LONG).show()
@@ -583,38 +703,77 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             Toast.makeText(requireContext(), "Matrix Master must have Pixel ID 0.", Toast.LENGTH_LONG).show()
             return
         }
-        if (allIds.isEmpty() || allIds.first() != 0 || allIds.distinct().size != allIds.size ||
-            allIds.withIndex().any { it.value != it.index }) {
+        val uniqueIds = ids.distinct()
+        if (uniqueIds.isEmpty() || uniqueIds.first() != 0 ||
+            uniqueIds.withIndex().any { it.value != it.index }) {
             Toast.makeText(requireContext(), "Matrix Pixel IDs must be consecutive starting from 0.", Toast.LENGTH_LONG).show()
             return
         }
-        val count = allIds.size
-        items.forEachIndexed { i, item ->
-            val d = item.hardwareDevice ?: return@forEachIndexed
-            val c = LightCommand().apply {
-                fromJson(JSONObject(d.deviceFrame))
-                GLights = effectId
-                GState = item.GState
-                GPort = item.Gport
-                PixelID = ids[i]
-                PixelCount = count
-                Speed = speed.progress
-                Brightness = brightness.progress
-                ColorCount = specs.first { it.id == effectId }.colors
-                Random = randomEnabled
-                Custom1 = customValues[0]
-                Custom2 = if (effectId == 103) 100 else customValues[1]
-                Custom3 = customValues[2]
-                OnOff1Value = onOff1
-                OnOff2Value = onOff2
-                OnOff1 = onOff1 != 0
-                OnOff2 = onOff2 != 0
-                applyColors(this)
-            }
-            d.deviceFrame = c.toJsonString()
-            UdpClient.getClient(requireContext()).writeString(c.toJsonString(), d.ip ?: return@forEachIndexed, if (d.port > 0) d.port.toInt() else 8889)
+
+        val universe = matrixBaseUniverse(items)
+        if (universe == null) {
+            Toast.makeText(requireContext(), "Invalid Matrix GUniverse (32000-32500).", Toast.LENGTH_LONG).show()
+            return
         }
-        root.findViewById<TextView>(9012)?.text = "Pixel IDs: ${ids.sorted().joinToString()} / Count $count"
+
+        val spec = specs.first { it.id == effectId }
+        val colorCount = if (spec.colors > 0)
+            (0 until spec.colors.coerceAtMost(10)).takeWhile { colorSaved[it] }.size
+        else 1
+        val pixelCount = items.size
+
+        // Effect selection is a group configuration change and reaches every
+        // operational member. Parameter changes after the group is already on
+        // this Matrix effect go only to the Master.
+        val effectChanged = items.any { item ->
+            val d = item.hardwareDevice ?: return@any true
+            JSONObject(d.deviceFrame.ifBlank { "{}" }).optInt("GLights", -1) != effectId
+        }
+        val masterOnly = effectSelected && !effectChanged
+
+        items.forEach { item ->
+            val d = item.hardwareDevice ?: return@forEach
+            val discovery = JSONObject(d.deviceFrame)
+            val role = if (item.GState.equals("M", ignoreCase = true)) "M" else "S"
+            val payload = JSONObject().apply {
+                put("Command", discovery.optInt("Command", 0))
+                put("GLights", effectId)
+                put("Speed", speed.progress.coerceIn(0, 100))
+                put("Brightness", brightness.progress.coerceIn(0, 255))
+                put("GState", role)
+                put("GPort", if (group.allDevices) "8890" else item.Gport)
+                put("GUniverse", universe)
+                put("PixelID", pixelId(item))
+                put("PixelCount", pixelCount)
+                put("ColorCount", colorCount)
+                put("Random", if (randomEnabled) 1 else 0)
+                put("Custom1", customValues[0])
+                put("Custom2", if (effectId == 103) 100 else customValues[1])
+                put("Custom3", customValues[2])
+                put("OnOff1", onOff1)
+                put("OnOff2", onOff2)
+                val colorsArray = JSONArray()
+                if (spec.colors > 0) {
+                    repeat(colorCount) { index ->
+                        val c = colors[index]
+                        colorsArray.put(JSONArray().put(c[0]).put(c[1]).put(c[2]).put(c[3]))
+                    }
+                }
+                put("Colors", colorsArray)
+            }.toString()
+
+            if (masterOnly && !item.GState.equals("M", ignoreCase = true)) return@forEach
+            if (d.activeCommandFrame == payload) return@forEach
+
+            UdpClient.getClient(requireContext()).writeCommandString(
+                payload,
+                d.ip ?: return@forEach
+            )
+            d.rememberSentCommand(payload)
+        }
+
+        root.findViewById<TextView>(9012)?.text =
+            "Pixel IDs: ${items.map { pixelId(it) }.joinToString()} / Count $pixelCount"
         syncPreview()
     }
 
@@ -630,6 +789,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         val activeCount = (0 until spec.colors.coerceAtMost(10)).takeWhile { colorSaved[it] }.size
         preview.colors = colors.take(activeCount).map { it.copyOf() }
         preview.pixelCount = onlineMembers().size.coerceAtLeast(1)
+        preview.startAnimation()
         preview.invalidate()
     }
 
@@ -663,8 +823,9 @@ class PixelPreview(context: Context) : View(context) {
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
     private val frameHandler=Handler(Looper.getMainLooper())
     private var animating=false
+    private var animationStartMs=System.currentTimeMillis()
     private fun sine(v:Float)=kotlin.math.sin(v.toDouble()).toFloat()
-    fun startAnimation(){ if(animating)return; animating=true; frameHandler.post(frameRunnable) }
+    fun startAnimation(){ if(animating)return; animating=true; animationStartMs=System.currentTimeMillis(); frameHandler.post(frameRunnable) }
     fun stopAnimation(){ animating=false; frameHandler.removeCallbacks(frameRunnable) }
     private val frameRunnable=object:Runnable{
         override fun run(){
@@ -681,7 +842,16 @@ class PixelPreview(context: Context) : View(context) {
         val gap=4f
         val w=(width-gap*(n-1))/n.toFloat().coerceAtLeast(1f)
         val t=phase
-        fun rgb(c:IntArray,f:Float=1f)=Color.rgb((c.getOrElse(0){0}*f).toInt().coerceIn(0,255),(c.getOrElse(1){0}*f).toInt().coerceIn(0,255),(c.getOrElse(2){0}*f).toInt().coerceIn(0,255))
+        fun rgb(c:IntArray,f:Float=1f):Int {
+            val r=(c.getOrElse(0){0}*f).toInt().coerceIn(0,255)
+            val g=(c.getOrElse(1){0}*f).toInt().coerceIn(0,255)
+            val b=(c.getOrElse(2){0}*f).toInt().coerceIn(0,255)
+            val white=(c.getOrElse(3){0}*f).toInt().coerceIn(0,255)
+            if(white==0)return Color.rgb(r,g,b)
+            if(r==0&&g==0&&b==0)return Color.rgb(white,white,white)
+            val mix=(white/255f)*0.8f
+            return Color.rgb((r+(255-r)*mix).toInt().coerceIn(0,255),(g+(255-g)*mix).toInt().coerceIn(0,255),(b+(255-b)*mix).toInt().coerceIn(0,255))
+        }
         fun hsv(h:Float,v:Float=1f)=Color.HSVToColor(floatArrayOf(((h%360f)+360f)%360f,1f,v.coerceIn(0f,1f)))
         val out=IntArray(n){Color.BLACK}
         val count=colors.size.coerceAtLeast(1)
@@ -689,9 +859,90 @@ class PixelPreview(context: Context) : View(context) {
         when(effect){
             101->{val idx=((t*(1f+speed/18f)).toInt().mod(count));for(i in 0 until n)out[i]=rgb(colors.getOrNull(idx)?:intArrayOf(255,0,0))}
             102->{val headRaw=(t*(1.5f+speed/18f)*dir);val head=((headRaw.toInt()%n)+n)%n;for(i in 0 until n){val d=if(dir>0) ((i-head+n)%n) else ((head-i+n)%n);val tail=custom.getOrElse(0){36}.coerceIn(1,100);val q=when{d==0->1f;d<=max(1,tail*n/100)->(1f-d.toFloat()/max(1,tail*n/100));else->0f};out[i]=when{d==0->rgb(colors.getOrNull(0)?:intArrayOf(255,0,0));q>0->rgb(colors.getOrNull(1)?:intArrayOf(255,0,0),q);else->rgb(colors.getOrNull(2)?:intArrayOf(0,0,0))}}}
-            103->{for(i in 0 until n){val h=t*90f + i.toFloat()/n*360f;out[i]=hsv(h)}}
+            103->{
+                 // PC App preview: Rainbow Chase uses the firmware 8.8
+                 // phase-rate law. Speed therefore changes temporal movement.
+                 val s=speed.coerceIn(0,100)
+                 val custom1=custom.getOrElse(0){60}.coerceIn(0,100)
+                 val span=3f + 253f*custom1/100f
+                 val direction=onOff2.coerceIn(0,3)
+                 val movement=onOff1.coerceIn(0,1)
+                 val elapsed=(System.currentTimeMillis()-animationStartMs).coerceAtLeast(0L).toFloat()
+                 var temporalPhase=0f
+                 if(s>0){
+                     val level=(s-1)/10
+                     val within=(s-1)%10
+                     val base=256.0 * 2.0.pow(level.toDouble())
+                     val next=if(level>=9) base else base*2.0
+                     val rate=base+(next-base)*within/10.0
+                     val delta=elapsed*rate/1000.0
+                     val oneWayLimit=255.0*256.0
+                     temporalPhase=if(movement==1){
+                         val period=oneWayLimit*2.0
+                         val wrapped=delta%period
+                         if(wrapped<=oneWayLimit) wrapped.toFloat() else (period-wrapped).toFloat()
+                     }else (delta%(256.0*256.0)).toFloat()
+                 }
+                 for(i in 0 until n){
+                     val spatial=when(direction){
+                         1->n-1-i
+                         2->min(i,n-1-i)
+                         3->(n-1)/2-min(i,n-1-i)
+                         else->i
+                     }
+                     val spatialPhase=if(n<=1)0f else floor(spatial*span/max(1,n-1))
+                     val wheelPhase=if(direction<=1) spatialPhase-temporalPhase/256f else spatialPhase+temporalPhase/256f
+                     out[i]=hsv(wheelPhase)
+                 }
+             }
             104->{val fill=((t*(1f+speed/50f))%2f);val p=if(fill<=1f)fill else 2f-fill;for(i in 0 until n){val x=i.toFloat()/n;val lit=if(onOff1==1||onOff1==4)x>=1f-p else x<=p;out[i]=if(lit)rgb(colors.getOrNull(0)?:intArrayOf(255,0,0)) else rgb(colors.getOrNull(1)?:intArrayOf(0,0,0))}}
-            105->{val block=max(1,custom.getOrElse(0){0});val shift=((t*(1f+speed/30f)).toInt()*max(1,block+1));for(i in 0 until n)out[i]=rgb(colors.getOrNull((i+shift)/max(1,block+1)%count)?:intArrayOf(255,0,0))}
+            105->{
+                // Match PC App Theater preview: contiguous blocks in Normal,
+                // one black separator per block in Black Background, and
+                // paired randomized eyes in Halloween Eyes.
+                val cols=if(colors.isNotEmpty()) colors else listOf(intArrayOf(255,0,0),intArrayOf(0,255,0))
+                val mode=onOff1.coerceIn(0,2)
+                val direction=onOff2.coerceIn(0,1)
+                val s=speed.coerceIn(0,100)
+                val block=(1 + (custom.getOrElse(0){0}.coerceIn(0,100)*(n-1)/100)).coerceIn(1,n)
+                val outColors=Array(n){Color.BLACK}
+                if(mode==2){
+                    fun hash(value:Int):Int { var x=value; x=x xor (x shl 13); x=x xor (x ushr 17); x=x xor (x shl 5); return x }
+                    val fadeMs=max(730,650+(100-s)*15)
+                    val minWait=max(80,180-s)
+                    val maxWait=max(minWait+1,2600-s*19)
+                    val total=max(1,fadeMs+maxWait+80)
+                    val now=System.currentTimeMillis()-animationStartMs
+                    val cycleIndex=(now/total).toInt()
+                    val local=(now%total).toInt()
+                    val wait=minWait+(hash(cycleIndex*0x9e3779b9.toInt()).ushr(1)%(max(1,maxWait-minWait+1)))
+                    if(local>=wait){
+                        val eyeElapsed=local-wait
+                        val separation=max(1,min(n-1,1+custom.getOrElse(0){0}.coerceIn(0,100)*(n-2).coerceAtLeast(0)/100))
+                        val eyeCount=max(1,min(n/2,custom.getOrElse(2){1}.coerceAtLeast(1)))
+                        for(e in 0 until eyeCount){
+                            val maxStart=max(0,n-1-separation)
+                            val start=if(maxStart>0) hash(cycleIndex*0x9e3779b9.toInt()+e*0x85ebca6b.toInt()).ushr(1)%(maxStart+1) else 0
+                            val color=cols[hash(cycleIndex*0x632be59b+e*0x27d4eb2d).ushr(1).rem(cols.size.coerceAtLeast(1))] 
+                            val fade=if(eyeElapsed<20) 1f else (1f-(eyeElapsed-20).coerceAtLeast(0).toFloat()/max(1,fadeMs-20)).coerceIn(0f,1f)
+                            outColors[start]=rgb(color,fade)
+                            if(start+separation<n) outColors[start+separation]=rgb(color,fade)
+                        }
+                    }
+                } else {
+                    val interval=max(40,650-(s*6.1f).roundToInt())
+                    val phase=(System.currentTimeMillis()-animationStartMs)/interval
+                    val span=if(mode==1) block+1 else block
+                    val patternLen=max(1,span*cols.size.coerceAtLeast(1))
+                    for(i in 0 until n){
+                        val pos=if(direction==1) n-1-i else i
+                        val p=((pos-phase%patternLen+patternLen)%patternLen).toInt()
+                        if(mode==1 && p%span==block) outColors[i]=Color.BLACK
+                        else outColors[i]=rgb(cols[(p/span)%cols.size.coerceAtLeast(1)])
+                    }
+                }
+                for(i in 0 until n) out[i]=outColors[i]
+            }
             106->{val density=custom.getOrElse(0){15}.coerceIn(1,100)/100f;for(i in 0 until n){val pulse=(sine(t*12f+i*2.9f)+1f)/2f;val spark=if(pulse>1f-density)1f else 0f;out[i]=if(spark>0)rgb(colors.getOrNull(0)?:intArrayOf(0,0,0),spark) else rgb(colors.getOrNull(1)?:intArrayOf(0,0,0))}}
             107->{val launch=((t*(1f+speed/40f)).toInt()%n);val phase2=(t*2.2f)%1f;for(i in 0 until n){val d=kotlin.math.abs(i-launch);val radius=(custom.getOrElse(1){0}/100f)*n/2f+1f;val q=if(phase2<.28f && d<2)1f else if(phase2>.25f && phase2<.85f) (1f-d/(radius*phase2.coerceAtLeast(.1f))).coerceAtLeast(0f) else 0f;out[i]=when{phase2<.22f&&d==0->rgb(colors.getOrNull(0)?:intArrayOf(0,0,0),1f);q>0.1f->rgb(colors.getOrNull(1)?:intArrayOf(255,0,0),q);else->if(custom.getOrElse(0){0}==1 && phase2>.75f)rgb(colors.getOrNull(2)?:intArrayOf(255,255,0),q) else Color.BLACK}}}
             108->{for(i in 0 until n){val q=(sine(t*7+i*1.9f)+sine(t*4+i*.73f)+2f)/4f;out[i]=rgb(colors.getOrNull(0)?:intArrayOf(255,0,0),.35f+.65f*q)}}

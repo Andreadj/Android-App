@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.mobiled.android.base.comman.UdpClient
 import com.mobiled.android.base.model.HardwareGroupItem
 import com.mobiled.android.databinding.ItemDeviceSelectionBinding
 
@@ -55,6 +56,21 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
         if (singleItemSelection && item.selected) currentViewHolder = holder
         holder.viewBinding.selectionView.setOnCheckedChangeListener { _, checked ->
             item.selected = checked
+
+            // PC App parity: selecting a MobileD in the group membership
+            // editor immediately identifies the physical unit with a single
+            // Command=2 packet. This is deliberately limited to the group
+            // membership screen (showPixelId=true); the Master/Slave picker
+            // reuses this adapter but must not trigger a flash.
+            if (checked && showPixelId && !singleItemSelection) {
+                val device = item.hardwareDevice
+                val ip = device?.ip?.trim().orEmpty()
+                val apName = device?.ApName?.trim().orEmpty()
+                val udpClient = UdpClient.getClient(holder.itemView.context)
+                if (ip.isNotEmpty() && udpClient.isDiscoveryOnline(apName)) {
+                    udpClient.writeString("{\"Command\":2}", ip, 8889)
+                }
+            }
             if (singleItemSelection && checked) {
                 val old = currentViewHolder
                 if (old != null && old !== holder) {

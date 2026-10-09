@@ -23,7 +23,11 @@ import java.net.SocketException
 import java.util.Arrays
 import java.util.Locale
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 
@@ -37,6 +41,25 @@ class UdpClient(private var context: Context) {
     private var ipAddress: InetAddress? = null
 
     private var sendExecutor = Executors.newSingleThreadExecutor()
+    private val commandTrailingExecutor = ScheduledThreadPoolExecutor(1)
+    private val commandTrailing = ConcurrentHashMap<String, CommandTrailingState>()
+
+    // Discovery is the authoritative device-state stream. Keep a small
+    // per-APName last-seen cache so online/offline follows the same passive
+    // Discovery semantics as the PC App instead of probing the device with
+    // ICMP/ping.
+    private val discoveryLastSeen = ConcurrentHashMap<String, Long>()
+    private val discoveryOnline = ConcurrentHashMap<String, Boolean>()
+    private val discoveryStateListeners =
+        ConcurrentHashMap<String, ArrayList<DiscoveryStateListener>>()
+    private val discoveryWatchExecutor = ScheduledThreadPoolExecutor(1)
+
+    private data class CommandTrailingState(
+        val generation: Long,
+        var first: ScheduledFuture<*>? = null,
+        var second: ScheduledFuture<*>? = null,
+        var third: ScheduledFuture<*>? = null
+    )
     private var watcherThread: DeviceStateWatcher? = null
     //private var receiveExecutor = Executors.newSingleThreadExecutor()
 
@@ -183,8 +206,13 @@ class UdpClient(private var context: Context) {
 
     var specificDeviceListener: HashMap<String, ArrayList<Listener>> = hashMapOf()
     fun startListen(deviceName: String, listener: Listener) {
-        synchronized(this)
-        {
+        val key = deviceName.trim()
+        if (key.isEmpty()) return
+
+        // Register the listener before starting the receiver so the first
+        // Discovery datagram cannot be lost in the startup window.
+        synchronized(this) {
+            specificDeviceListener.getOrPut(key) { arrayListOf() }.add(listener)
             if (!listeningStarted) {
                 if (!startListen()) {
                     if (udpSocket == null) {
@@ -194,13 +222,55 @@ class UdpClient(private var context: Context) {
                 }
             }
         }
+    }
 
-        if (specificDeviceListener.containsKey(deviceName)) specificDeviceListener.get(deviceName)
-            ?.add(listener) else specificDeviceListener.put(deviceName, arrayListOf(listener))
+    /**
+     * Returns the current passive Discovery reachability for a MobileD.
+     * Group member identification uses this state so Command=2 is sent only
+     * when the PC App equivalent would identify an online device with a valid IP.
+     */
+    fun isDiscoveryOnline(deviceName: String): Boolean {
+        val key = deviceName.trim()
+        if (key.isEmpty()) return false
+        val lastSeen = discoveryLastSeen[key] ?: return false
+        return discoveryOnline[key] == true &&
+            System.currentTimeMillis() - lastSeen <= 3500L
+    }
+
+    fun listenDiscoveryState(deviceName: String, listener: DiscoveryStateListener) {
+        synchronized(this) {
+            discoveryStateListeners.getOrPut(deviceName.trim()) { arrayListOf() }.add(listener)
+            val apName = deviceName.trim()
+            val lastSeen = discoveryLastSeen[apName]
+            if (lastSeen != null && System.currentTimeMillis() - lastSeen <= 3500L) {
+                listener.onDiscoveryStateChanged(true)
+            }
+        }
     }
 
     private var listeningStarted = false
     private var lastExTime = -1L
+
+    init {
+        discoveryWatchExecutor.scheduleAtFixedRate({
+            val now = System.currentTimeMillis()
+            discoveryLastSeen.forEach { (apName, lastSeen) ->
+                if (now - lastSeen > 3500L &&
+                    discoveryOnline[apName] == true
+                ) {
+                    discoveryOnline[apName] = false
+                    synchronized(this) {
+                        discoveryStateListeners[apName]?.toList()?.forEach {
+                            try {
+                                it.onDiscoveryStateChanged(false)
+                            } catch (_: Exception) {
+                            }
+                        }
+                    }
+                }
+            }
+        }, 1, 1, TimeUnit.SECONDS)
+    }
     fun startListen(): Boolean {
         synchronized(this)
         {
@@ -266,8 +336,22 @@ class UdpClient(private var context: Context) {
                 try {
                     var json = JSONObject(_data)
                     if (json.has("APName")) {
-                        specificDeviceListener.get(json.getString("APName"))?.forEach {
-                            it.onUdpMessage(bytes)
+                        val apName = json.getString("APName").trim()
+                        if (apName.isNotEmpty()) {
+                            discoveryLastSeen[apName] = System.currentTimeMillis()
+                            val wasOnline = discoveryOnline[apName] == true
+                            discoveryOnline[apName] = true
+                            if (!wasOnline) {
+                                discoveryStateListeners[apName]?.toList()?.forEach {
+                                    try {
+                                        it.onDiscoveryStateChanged(true)
+                                    } catch (_: Exception) {
+                                    }
+                                }
+                            }
+                            specificDeviceListener.get(apName)?.toList()?.forEach {
+                                it.onUdpMessage(bytes)
+                            }
                         }
                     }
                 } catch (ignore: Exception) {
@@ -286,6 +370,10 @@ class UdpClient(private var context: Context) {
 
     fun receivePacket(packet: DatagramPacket): Boolean {
         try {
+            // DatagramPacket keeps the previous received length. Reset it
+            // before every receive or a shorter packet would silently cap the
+            // maximum length of the next Discovery packet.
+            packet.length = packet.data.size
             udpSocket?.receive(packet)
             logMessage("TAG", "Packet Size : ${packet.data.size}")
             return true
@@ -383,6 +471,56 @@ class UdpClient(private var context: Context) {
         writeBytes(value.toByteArray(), ipAddress, port, writeCallback)
     }
 
+    /**
+     * App Command transport.
+     *
+     * MobileD commands always use UDP 8889 as the network destination.
+     * GPort remains a field inside the JSON payload and is never used as the
+     * UDP destination port. The transmission policy mirrors the PC App: one
+     * immediate datagram, then (only after 50 ms without a newer command for
+     * the same device) three final retransmissions spaced by 15 ms.
+     */
+    fun writeCommandString(
+        value: String,
+        ipAddress: String,
+        writeCallback: WriteCallback = object : WriteCallback {
+            override fun onOperationDone(result: Boolean) {
+                // Handle operation done
+            }
+        }
+    ) {
+        val key = ipAddress.trim()
+        if (key.isEmpty()) return
+
+        val previous = commandTrailing[key]
+        previous?.first?.cancel(false)
+        previous?.second?.cancel(false)
+        previous?.third?.cancel(false)
+
+        val generation = (previous?.generation ?: 0L) + 1L
+        val state = CommandTrailingState(generation)
+        commandTrailing[key] = state
+
+        writeString(value, key, 8889, writeCallback)
+
+        val bytes = value.toByteArray()
+        state.first = commandTrailingExecutor.schedule({
+            if (commandTrailing[key]?.generation != generation) return@schedule
+            writeBytes(bytes, key, 8889)
+        }, 50, TimeUnit.MILLISECONDS)
+
+        state.second = commandTrailingExecutor.schedule({
+            if (commandTrailing[key]?.generation != generation) return@schedule
+            writeBytes(bytes, key, 8889)
+        }, 65, TimeUnit.MILLISECONDS)
+
+        state.third = commandTrailingExecutor.schedule({
+            if (commandTrailing[key]?.generation != generation) return@schedule
+            writeBytes(bytes, key, 8889)
+            commandTrailing.remove(key, state)
+        }, 80, TimeUnit.MILLISECONDS)
+    }
+
     private fun writeBytes(
         bytes: ByteArray,
         bcAddress: String,
@@ -457,6 +595,10 @@ class UdpClient(private var context: Context) {
 
     open interface StateListener {
         fun onClientConnectionStatusChange(result: Boolean = true)
+    }
+
+    open interface DiscoveryStateListener {
+        fun onDiscoveryStateChanged(online: Boolean)
     }
 
     open interface WriteCallback {

@@ -17,6 +17,8 @@ data class Effect(
     var isSpeed = false
     var isFrequency = false
     var isSensitivity = false
+    var isColorBrightness = false
+    var isWhite = false
 
 
 }

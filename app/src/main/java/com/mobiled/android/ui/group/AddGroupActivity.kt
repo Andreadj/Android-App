@@ -26,7 +26,7 @@ class AddGroupActivity : com.mobiled.android.base.BaseActivity<ActivityAddGroupB
             if(items.isEmpty()){showToast("No devices selected!");return@setOnClickListener}
             if(binding.viewGroupName.text.isNullOrEmpty()){showToast("Enter valid group title!");return@setOnClickListener}
             val ids=items.map{it.PixelID}
-            if(ids.any{it !in 0..1023} || ids.distinct().size!=ids.size){showToast("Pixel IDs must be unique (0-1023)!");return@setOnClickListener}
+            if(ids.any{it !in 0..1023}){showToast("Pixel IDs must be in the range 0-1023!");return@setOnClickListener}
             group?.groupItems=items;group?.groupTitle=binding.viewGroupName.text.toString();binding.viewLoader.show();viewModel.onSaveButtonPressed(group!!)
         }
     }

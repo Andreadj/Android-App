@@ -179,8 +179,10 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), RcvChildListAdapter.Ad
         var popupMenu = PopupMenu(requireContext(), view)
         if (!hardwareGroup.allDevices) {
             popupMenu.menu.add("Remove Group")
-            popupMenu.menu.add("Edit Group")
         }
+        // All Devices is editable too: its members carry the Pixel IDs used
+        // by distributed Matrix/Music routing.
+        popupMenu.menu.add("Edit Group")
         if (hardwareGroup.groupItems?.isEmpty() == false) {
             popupMenu.menu.add("Master & Slave Settings")
         }
@@ -217,7 +219,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), RcvChildListAdapter.Ad
     override fun onItemClick(
         hardwareDevice: HardwareDevice, view: View, childPosition: Int, groupPosition: Int
     ) {
-        if (!hardwareDevice.deviceFrame.isEmpty()) {
+        if (hardwareDevice.isOnline && !hardwareDevice.deviceFrame.isEmpty()) {
             var terminalPage = Intent(requireContext(), ControllerActivity::class.java)
             terminalPage.putExtra("device", hardwareDevice)
             startActivity(terminalPage)

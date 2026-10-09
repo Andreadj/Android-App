@@ -2,22 +2,44 @@
 <html>
 <body>
 <h1>Help and Support</h1>
-<br/>
-<ol>
-    <li> Connect your Smartphone or Tablet to MobileD Access Point; open your WiFi settings and
-        connect to “MobileD_c07be9ae114c” (example of a MobileD AP name).
-    </li>
-    <br/>
-    <li> Once connected scan for devices clicking on the “+” button</li>
-    <br/>
-    <li> Once your Device has been found you can control it clicking on it; with a long press a
-        Captive portal will be showed to change Settings, with a short press a Controls Area will be
-        showed to control RGBW leds in realtime or to recall special effects
-    </li>
-</ol>
-<br/>
-<p>User Manual download at <a href="http://www.mobiledonline.eu">www.mobiledonline.eu</a></p>
-<br/>
+<p>MobileD Android App is a controller for MobileD lighting units. The following checks follow the same functional structure used by the MobileD PC App.</p>
+<h2>Getting started</h2>
+<ul>
+    <li>Make sure the MobileD units and the Android device are connected to the network.</li>
+    <li>Use the <strong>+</strong> button on Home to run an explicit discovery scan and add new MobileD units.</li>
+    <li>Discovery remains active after startup and updates registered devices automatically.</li>
+    <li>Open an online device or group to enter the Controller. Offline devices remain saved but cannot receive commands.</li>
+</ul>
+<h2>Devices and Groups</h2>
+<ul>
+    <li>Devices are identified by their stable MobileD identity (APName). If a known MobileD changes IP address, the saved device is updated instead of duplicated.</li>
+    <li><strong>All Devices</strong> is the system group and uses GPort 8890.</li>
+    <li>User-created groups use their configured GPort.</li>
+    <li>Pixel ID defines the position used by distributed Matrix and Music effects and is independent from DMX addressing.</li>
+    <li>Multiple group members may use the same Pixel ID. Distributed effects use the consecutive Pixel-ID positions present in the group.</li>
+</ul>
+<h2>Controller</h2>
+<ul>
+    <li><strong>Color</strong> provides Hue, Color Brightness and White Brightness controls.</li>
+    <li><strong>Effects</strong> contains the legacy MobileD effects and their parameters.</li>
+    <li><strong>Matrix</strong> is available for valid distributed groups and uses the configured Master/Slave routing.</li>
+    <li><strong>Music</strong> is App-driven: the Android device captures playback audio, generates the virtual strip and transmits the resulting DMX/sACN data to the configured MobileD group.</li>
+    <li>Discovery is the source of truth for the displayed device state.</li>
+</ul>
+<h2>Configuration</h2>
+<ul>
+    <li>When editing a group, assign the required Pixel IDs and Master/Slave roles according to the selected function.</li>
+    <li>For Matrix, exactly one Master is required and the Master must use Pixel ID 0.</li>
+    <li>Music does not use Master/Slave. It uses the group's Pixel IDs and virtual strip routing.</li>
+</ul>
+<h2>Troubleshooting</h2>
+<ul>
+    <li>If a device is not responding, verify that it is powered, connected to a reachable network, and visible in Discovery.</li>
+    <li>If a device has moved to another IP address, run the explicit discovery scan. The stable device identity prevents duplicate entries.</li>
+    <li>If Matrix or Music is unavailable, verify that the selected group has valid consecutive Pixel-ID positions starting at 0 and the required GUniverse configuration.</li>
+    <li>If Music does not start, verify Android playback-capture authorization and that a reachable MobileD group is selected.</li>
+</ul>
+<p>User Manual and product documentation: <a href="https://www.mobiledonline.eu/">www.mobiledonline.eu</a></p>
 <p>Limited support by e-mail is available at <a href="mailto:info@mobiledonline.eu">info@mobiledonline.eu</a></p>
 </body>
 </html>

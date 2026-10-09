@@ -24,12 +24,25 @@ interface GroupTableDAO {
         var groupTableItems = getGroupItems(groupId)
         if (item.allDevices && groupTableItems.isEmpty()) {
             val groupItems = arrayListOf<HardwareGroupItem>()
-            getDevices().forEachIndexed { index, device -> groupItems.add(HardwareGroupItem().also { it.groupId=item.rowId; it.selected=true; it.PixelID=index; it.hardwareDevice=device }) }
+            getDevices().forEachIndexed { index, device ->
+                groupItems.add(HardwareGroupItem().also {
+                    it.groupId=item.rowId
+                    it.selected=true
+                    it.PixelID=index
+                    it.Gport="8890"
+                    it.GState="X"
+                    it.hardwareDevice=device
+                })
+            }
             insertGroupDevices(groupItems); groupTableItems=getGroupItems(groupId)
         }
+
+        normalizeRouting(groupTableItems, item.allDevices)
         val groupItems = arrayListOf<HardwareGroupItem>()
         val savedIds = groupTableItems.map { it.PixelID }
-        val savedIdsValid = savedIds.size == savedIds.distinct().size && savedIds.all { it in 0..255 }
+        // PC App allows multiple group members to share the same Pixel ID.
+        // Only the numeric range is normalized here; never rewrite duplicate IDs.
+        val savedIdsValid = savedIds.all { it in 0..1023 }
         if (!savedIdsValid) groupTableItems.forEachIndexed { index, saved -> saved.PixelID = index }
         getDevices().forEachIndexed { index, device -> groupItems.add(HardwareGroupItem().also { it.hardwareDevice=device; it.selected=false; it.PixelID=index }) }
         groupTableItems.forEach { saved -> groupItems.find { it.hardwareDevice?.rowId==saved.hardwareDevice?.rowId }?.let { dst ->
@@ -38,6 +51,44 @@ interface GroupTableDAO {
         item.groupItems=groupItems
         return item
     }
+
+    private fun normalizeRouting(items: List<HardwareGroupItem>, allDevices: Boolean) {
+        if (items.isEmpty()) return
+
+        if (allDevices) {
+            items.forEach {
+                it.Gport = "8890"
+                it.GState = "X"
+                updateGroupDevice(it)
+            }
+            return
+        }
+
+        val master = items.firstOrNull { it.GState.equals("M", ignoreCase = true) }
+        val existingPort = items.asSequence()
+            .map { it.Gport.toIntOrNull() }
+            .firstOrNull { it in 10000..65535 }
+        val port = existingPort?.toString() ?: findFreeGroupPort()
+
+        items.forEach { item ->
+            item.Gport = port
+            item.GState = when {
+                master != null && item.gItemRowId == master.gItemRowId -> "M"
+                master != null -> "S"
+                else -> "X"
+            }
+            updateGroupDevice(item)
+        }
+    }
+
+    private fun findFreeGroupPort(): String {
+        val used = getGroupItems().mapNotNull { it.Gport.toIntOrNull() }.toHashSet()
+        var port = 10000
+        while (port <= 65535 && (port == 8889 || port == 8890 || used.contains(port))) port++
+        return if (port <= 65535) port.toString() else "10000"
+    }
+
+    @Update fun updateGroupDevice(item: HardwareGroupItem): Int
 
     @Query("SELECT * FROM hardwaregroupitem WHERE groupId =:groupId") fun getGroupItems(groupId: Long): List<HardwareGroupItem>
     @Query("SELECT * FROM hardwaregroupitem") fun getGroupItems(): List<HardwareGroupItem>

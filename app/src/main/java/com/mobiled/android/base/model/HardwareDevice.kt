@@ -59,8 +59,26 @@ class HardwareDevice : java.io.Serializable {
     @Expose
     var previousFrame = ""
 
+    /**
+     * Latest complete Discovery packet. This is the only visual-state source.
+     */
     @Ignore
     var deviceFrame = ""
+
+    /**
+     * Last locally generated command. Never use this for UI or Discovery state.
+     */
+    @Ignore
+    var activeCommandFrame = ""
+
+    /**
+     * Passive Discovery online state. Offline does not erase deviceFrame.
+     */
+    @Ignore
+    var isOnline = false
+
+    @Ignore
+    var lastDiscoveryTime = 0L
 
     @Ignore
     var actionTime = -1L
@@ -99,9 +117,45 @@ class HardwareDevice : java.io.Serializable {
         return (System.currentTimeMillis() - actionTime) >= MaxWaitTime
     }
 
-    fun applyPreviousFrame(frame: String) {
-        previousFrame = deviceFrame + ""
+    /**
+     * Applies a received Discovery packet. Discovery is authoritative for the
+     * displayed state; local command transmission must never call this method.
+     */
+    @Synchronized
+    fun applyDiscoveryFrame(frame: String) {
+        if (frame.isBlank()) return
+        previousFrame = deviceFrame
         deviceFrame = frame
+        isOnline = true
+        lastDiscoveryTime = System.currentTimeMillis()
+        actionTime = -1L
+    }
+
+    /**
+     * Kept for source compatibility with older code. It now has Discovery-only
+     * semantics and must never be used to store an outgoing command.
+     */
+    @Synchronized
+    fun applyPreviousFrame(frame: String) {
+        applyDiscoveryFrame(frame)
+    }
+
+    @Synchronized
+    fun markOffline() {
+        isOnline = false
+    }
+
+    @Synchronized
+    fun rememberSentCommand(frame: String) {
+        if (frame.isBlank()) return
+        activeCommandFrame = frame
+        actionTime = System.currentTimeMillis()
+    }
+
+    @Synchronized
+    fun clearSentCommand() {
+        activeCommandFrame = ""
+        actionTime = -1L
     }
 
     fun isActiveStatusChange(): Boolean {

@@ -159,11 +159,11 @@ class MasterSlaveActivity :
         var portExists: Boolean
 
         do {
-            // Generate a random port number between 1000 and 9999
-            portNumber = Random.nextInt(1000, 10000)
+            // User group GPorts follow the PC/Mac protocol: 10000..65535.
+            portNumber = Random.nextInt(10000, 65536)
 
-            // Check if the port number exists or is a reserved port (8889)
-            portExists = viewModel.hasPortConflict(portNumber.toString()) || portNumber == 8889
+            // 8889 is the App Command UDP destination; 8890 is All Devices.
+            portExists = viewModel.hasPortConflict(portNumber.toString()) || portNumber == 8889 || portNumber == 8890
 
         } while (portExists) // Repeat until a unique port number is found
 
