@@ -1,5 +1,6 @@
 package com.mobiled.android.ui.controller
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.widget.Toast
@@ -16,6 +17,7 @@ import com.mobiled.android.base.model.HardwareGroupItem
 import com.mobiled.android.base.model.LightCommand
 import com.mobiled.android.databinding.ActivityControllerBinding
 import com.mobiled.android.model.Effect
+import com.mobiled.android.ui.home.HomeActivity
 import om.android.mobiled.comman.hide
 import om.android.mobiled.comman.show
 import org.json.JSONObject
@@ -179,13 +181,17 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
 
             if (snapshot.isEmpty()) return@setOnClickListener
 
-            val allOn = snapshot
-                .mapNotNull { target ->
-                    target.item.hardwareDevice?.let { discoveryFrame(it).optInt("Command", 0) }
+            val commands = snapshot.mapNotNull { target ->
+                target.item.hardwareDevice?.let { hardwareDevice ->
+                    val frame = discoveryFrame(hardwareDevice)
+                    if (frame.has("Command")) frame.optInt("Command", 0) else null
                 }
-                .all { it == 1 }
-            // Group power rule: all ON -> OFF; all OFF or mixed -> ON.
-            val commandValue = if (allOn) 0 else 1
+            }
+            if (commands.isEmpty()) return@setOnClickListener
+
+            // Match the controller button state: all OFF is shown as OFF;
+            // all ON or mixed is shown as ON. Pressing ON sends OFF to all.
+            val commandValue = if (commands.all { it == 0 }) 1 else 0
 
             snapshot.forEach { target ->
                 target.item.hardwareDevice?.let { hardwareDevice ->
@@ -488,7 +494,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         return JSONObject(device.deviceFrame.ifEmpty { "{}" })
     }
 
-    private fun stopMusicForExternalControl(){
+    fun stopMusicForExternalControl(){
         try{
             val music=viewPagerAdapter.getFragment(3) as? MusicFragment
             music?.deactivateMusic()
@@ -1024,7 +1030,12 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             }
             updateNavItem(binding.viewPager.currentItem, prevIndex)
         } else {
-            super.onBackPressed()
+            // Return to the existing HomeActivity without finishing ControllerActivity.
+            // MusicFragment owns the active capture/render loop, so keeping this Activity
+            // alive prevents normal navigation from destroying the Music session.
+            startActivity(
+                Intent(this, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            )
         }
     }
 

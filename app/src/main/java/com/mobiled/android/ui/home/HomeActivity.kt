@@ -330,7 +330,9 @@ class HomeActivity : com.mobiled.android.base.BaseActivity<ActivityHomeBinding, 
             toggleMenu()
         } else {
             if (getCurrentFragment() is HomeFragment || getCurrentFragment() == null) {
-                finish()
+                // Explicitly exit the task, including a retained ControllerActivity
+                // underneath Home, so Music is stopped by the normal destruction path.
+                finishAffinity()
             } else {
                 super.onBackPressed()
             }

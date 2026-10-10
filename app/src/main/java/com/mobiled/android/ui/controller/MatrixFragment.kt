@@ -131,6 +131,9 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     }
 
     private fun selectEffect(id: Int) {
+        // PC App parity: selecting a non-Music effect must terminate the Music
+        // capture/session before the new effect is applied.
+        (activity as? ControllerActivity)?.stopMusicForExternalControl()
         effectSelected = true
         effectId = id
         root.findViewById<Button>(9008)?.visibility = View.GONE
@@ -215,6 +218,26 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
 
         if (spec.colors > 0) {
             val colorBox = sectionBox("Colors")
+            if (spec.random) {
+                // Keep Random aligned on the same header row, immediately to the right of Colors.
+                val title = colorBox.getChildAt(0) as TextView
+                colorBox.removeViewAt(0)
+                val titleRow = LinearLayout(requireContext()).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(title, LinearLayout.LayoutParams(-2, -2))
+                    // Keep Random at the far right edge of the Colors header row.
+                    addView(View(requireContext()), LinearLayout.LayoutParams(0, 1, 1f))
+                    addView(CheckBox(requireContext()).apply {
+                        text = "Random"
+                        setTextColor(Color.WHITE)
+                        isChecked = randomEnabled
+                        setPadding(0, 0, 0, 0)
+                        setOnCheckedChangeListener { _, checked -> randomEnabled = checked; send(forceParameterUpdate = true) }
+                    }, LinearLayout.LayoutParams(-2, dp(44)))
+                }
+                colorBox.addView(titleRow, 0, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
+            }
             colorBox.addView(TextView(requireContext()).apply {
                 text = "Tap a color to edit • hold 3 seconds to save the current picker color"
                 setTextColor(Color.LTGRAY); textSize = 12f
@@ -270,12 +293,6 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             val main = sectionBox("Main controls")
             if (spec.speed) addStepSlider(main, "Speed", speed.progress, 0, 100, "") { speed.progress = it; speedValue.text = "Speed $it"; send() }
             if (spec.brightness) addStepSlider(main, "Brightness", brightness.progress, 0, 255, "") { brightness.progress = it; brightnessValue.text = "Brightness $it"; send() }
-            if (spec.random) {
-                main.addView(CheckBox(requireContext()).apply {
-                    text = "Random"; setTextColor(Color.WHITE); isChecked = randomEnabled
-                    setOnCheckedChangeListener { _, checked -> randomEnabled = checked; send() }
-                }, LinearLayout.LayoutParams(-1, 44).apply { topMargin = 10 })
-            }
             panel.addView(main, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 12 })
         }
 
@@ -334,16 +351,32 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
 
     private fun spinnerRow(label: String, options: List<String>, selected: Int, onChange: (Int) -> Unit): LinearLayout = LinearLayout(requireContext()).apply {
         orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        addView(TextView(requireContext()).apply { text = label; textSize = 13f; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(0, dp(68), 0.95f))
+        val rowHeight = dp(42)
+        addView(TextView(requireContext()).apply {
+            text = label; textSize = 16f; setTextColor(Color.WHITE); maxLines = 1
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(0, rowHeight, 0.95f))
         val spinner = Spinner(requireContext()).apply {
             val adapter = object : ArrayAdapter<String>(requireContext(), android.R.layout.simple_spinner_item, options) {
-                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = TextView(requireContext()).apply { text = options[position]; textSize = 12f; setTextColor(Color.WHITE); gravity = Gravity.CENTER_VERTICAL; setPadding(10,0,10,0) }
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = TextView(requireContext()).apply {
+                    text = options[position]; textSize = 16f; setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(10, 0, 10, 0)
+                }
+                override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View = TextView(requireContext()).apply {
+                    text = options[position]; textSize = 16f; setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(12, 0, 12, 0); minimumHeight = dp(42)
+                }
             }
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            this.adapter = adapter; setSelection(selected.coerceIn(0, options.lastIndex), false); setBackgroundResource(R.drawable.grey_box)
+            this.adapter = adapter
+            setPopupBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.rgb(45, 45, 45)))
+            setSelection(selected.coerceIn(0, options.lastIndex), false)
+            setBackgroundResource(R.drawable.grey_box)
             onItemSelectedListener = object : AdapterView.OnItemSelectedListener { override fun onNothingSelected(parent: AdapterView<*>?) {} ; override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { onChange(position) } }
         }
-        addView(spinner, LinearLayout.LayoutParams(0, dp(68), 1.05f).apply { leftMargin = 10 })
+        addView(spinner, LinearLayout.LayoutParams(0, rowHeight, 1.05f).apply { leftMargin = 10 })
     }
 
     private fun bindThreeSecondSave(view: View, onSave: () -> Unit, onClick: () -> Unit) {
@@ -562,14 +595,19 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         fun hueButton(symbol: String, click: () -> Unit) = TextView(requireContext()).apply {
             text = symbol
             gravity = Gravity.CENTER
-            textSize = 20f
+            textSize = 14f
+            maxLines = 1
+            setPadding(dp(4), 0, dp(4), 0)
             setTextColor(Color.BLACK)
             setBackgroundResource(R.drawable.white_box)
             setOnClickListener { click() }
         }
-        hue.addView(hueButton("− REV") { picker.decreaseHue() }, LinearLayout.LayoutParams(0, dp(36), 1f).apply { rightMargin = dp(6) })
-        hue.addView(hueButton("+ FWD") { picker.increaseHue() }, LinearLayout.LayoutParams(0, dp(36), 1f).apply { leftMargin = dp(6) })
-        pickerFrame.addView(hue, FrameLayout.LayoutParams(-1, dp(36), Gravity.BOTTOM).apply { leftMargin = dp(4); rightMargin = dp(4); bottomMargin = dp(2) })
+        // Match the Color screen: compact buttons anchored to opposite sides,
+        // with the free space kept between them (not two half-width buttons).
+        hue.addView(hueButton("− REV") { picker.decreaseHue() }, LinearLayout.LayoutParams(-2, dp(24)))
+        hue.addView(View(requireContext()), LinearLayout.LayoutParams(0, 1, 1f))
+        hue.addView(hueButton("+ FWD") { picker.increaseHue() }, LinearLayout.LayoutParams(-2, dp(24)))
+        pickerFrame.addView(hue, FrameLayout.LayoutParams(-1, dp(24), Gravity.BOTTOM).apply { leftMargin = dp(4); rightMargin = dp(4); bottomMargin = dp(2) })
         host.addView(pickerFrame, LinearLayout.LayoutParams(-1, dp(360)))
 
         val readout = TextView(requireContext()).apply {
@@ -678,7 +716,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         return group.GUniverse.takeIf { it in 32000..32500 }
     }
 
-    private fun send() {
+    private fun send(forceParameterUpdate: Boolean = false) {
         if (::speed.isInitialized && ::brightness.isInitialized) saveRuntimeConfig()
         val a = requireActivity() as ControllerActivity
         if (!a.canOpenDistributedEffects("Matrix")) return
@@ -763,7 +801,8 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             }.toString()
 
             if (masterOnly && !item.GState.equals("M", ignoreCase = true)) return@forEach
-            if (d.activeCommandFrame == payload) return@forEach
+            // A direct Random toggle must be transmitted even if the cached command frame matches.
+            if (!forceParameterUpdate && d.activeCommandFrame == payload) return@forEach
 
             UdpClient.getClient(requireContext()).writeCommandString(
                 payload,

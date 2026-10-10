@@ -29,6 +29,7 @@ import android.widget.*
 import androidx.annotation.RequiresApi
 import androidx.viewpager2.widget.ViewPager2
 import com.mobiled.android.MobiLedApp
+import com.mobiled.android.adapters.GeneralUtil
 import com.mobiled.android.R
 import com.mobiled.android.base.BaseFragment
 import com.mobiled.android.base.comman.UdpClient
@@ -120,6 +121,10 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private val spectrumSaved = BooleanArray(10)
     private val spectrumBandMap = IntArray(10)
     private var selectedColorIndex = 0
+    private var bpmPickerBrightness = 100
+    private var bpmPickerWhite = 0
+    private var spectrumPickerBrightness = 100
+    private var spectrumPickerWhite = 0
 
     // PC MusicEngine runtime state. These values intentionally mirror the
     // renderer/music_engine.js state rather than introducing an Android-only
@@ -456,24 +461,71 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private fun addMusicColors(host:LinearLayout){
         val colorsBox=LinearLayout(requireContext()).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(14),dp(14),dp(18));setBackgroundResource(R.drawable.dark_box_corner)}
         colorsBox.addView(TextView(requireContext()).apply{text="Colors";textSize=18f;setTextColor(Color.WHITE);setTypeface(typeface,android.graphics.Typeface.BOLD)},LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(12)})
-        val targetPalette=if(effect=="spectrum")spectrumColors else palette;val saved=if(effect=="spectrum")spectrumSaved else paletteSaved
+        val isBpm = effect == "bpm"
+        val targetPalette=if(effect=="spectrum")spectrumColors else palette
+        val saved=if(effect=="spectrum")spectrumSaved else paletteSaved
         val grid=GridLayout(requireContext()).apply{columnCount=5;useDefaultMargins=false}
         repeat(10){i->
             val cell=LinearLayout(requireContext()).apply{orientation=LinearLayout.VERTICAL}
-            val sw=TextView(requireContext()).apply{text="${i+1}";gravity=Gravity.CENTER;textSize=16f;setTypeface(typeface,android.graphics.Typeface.BOLD);setTextColor(Color.WHITE);setBackgroundColor(if(saved[i])Color.rgb(targetPalette[i][0],targetPalette[i][1],targetPalette[i][2]) else Color.rgb(55,55,55))}
-            bindThreeSecondSave(sw,{saveColor(i,effect=="bpm");sw.setBackgroundColor(Color.rgb(0,155,65));Toast.makeText(requireContext(),"Color ${i+1} saved",Toast.LENGTH_SHORT).show()},{})
-            val reset=TextView(requireContext()).apply{text="RESET";gravity=Gravity.CENTER;textSize=10f;setTextColor(Color.WHITE);setBackgroundColor(Color.rgb(70,70,70));setOnClickListener{resetMusicColor(i,effect=="bpm");renderControls()}}
+            val sw=TextView(requireContext()).apply{
+                text="${i+1}";gravity=Gravity.CENTER;textSize=16f;setTypeface(typeface,android.graphics.Typeface.BOLD)
+                setTextColor(Color.WHITE)
+                setBackgroundColor(if(saved[i]) musicColorSwatch(targetPalette[i]) else Color.rgb(55,55,55))
+                setTextColor(if(saved[i] && musicColorSwatch(targetPalette[i])==Color.WHITE) Color.BLACK else Color.WHITE)
+            }
+            bindThreeSecondSave(sw,{
+                selectedColorIndex=i
+                saveColor(i,isBpm)
+                Toast.makeText(requireContext(),"Color ${i+1} saved",Toast.LENGTH_SHORT).show()
+            },{
+                if(isBpm || effect=="spectrum"){
+                    selectedColorIndex=i
+                    pickerColor=targetPalette[i].copyOf()
+                    val rgbBrightness=(maxOf(pickerColor[0],pickerColor[1],pickerColor[2])*100/255).coerceIn(0,100)
+                    val whiteBrightness=(pickerColor[3]*100/255).coerceIn(0,100)
+                    if(isBpm){bpmPickerBrightness=rgbBrightness;bpmPickerWhite=whiteBrightness}
+                    else{spectrumPickerBrightness=rgbBrightness;spectrumPickerWhite=whiteBrightness}
+                    savePickerColor()
+                    renderControls()
+                }
+            })
+            val reset=TextView(requireContext()).apply{text="RESET";gravity=Gravity.CENTER;textSize=10f;setTextColor(Color.WHITE);setBackgroundColor(Color.rgb(70,70,70));setOnClickListener{resetMusicColor(i,isBpm);if((isBpm || effect=="spectrum") && selectedColorIndex==i){pickerColor=intArrayOf(0,0,0,0);if(isBpm){bpmPickerBrightness=0;bpmPickerWhite=0}else{spectrumPickerBrightness=0;spectrumPickerWhite=0};savePickerColor()};renderControls()}}
             cell.addView(sw,LinearLayout.LayoutParams(-1,dp(78)));cell.addView(reset,LinearLayout.LayoutParams(-1,dp(40)).apply{topMargin=dp(12)})
             grid.addView(cell,GridLayout.LayoutParams().apply{width=0;height=-2;columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);setMargins(dp(6),dp(6),dp(6),dp(12))})
         }
-        colorsBox.addView(grid);colorsBox.addView(buildMusicPickerPreview(),LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(12)});host.addView(colorsBox,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})
+        colorsBox.addView(grid)
+        colorsBox.addView(buildMusicPickerPreview(),LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(12)})
+        host.addView(colorsBox,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})
     }
 
-    private fun spinnerRowMusic(label:String,options:List<String>,selected:Int,onChange:(Int)->Unit):LinearLayout=LinearLayout(requireContext()).apply{
-        orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-        addView(TextView(requireContext()).apply{text=label;textSize=13f;setTextColor(Color.WHITE)},LinearLayout.LayoutParams(0,48,.95f))
-        val sp=Spinner(requireContext()).apply{val ad=object:ArrayAdapter<String>(requireContext(),android.R.layout.simple_spinner_item,options){override fun getView(position:Int,convertView:View?,parent:ViewGroup)=TextView(requireContext()).apply{text=options[position];textSize=12f;setTextColor(Color.BLACK);gravity=Gravity.CENTER_VERTICAL;setPadding(10,0,10,0)}};ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);adapter=ad;setSelection(selected.coerceIn(0,options.lastIndex),false);setBackgroundResource(R.drawable.white_box);onItemSelectedListener=listener{onChange(selectedItemPosition)}}
-        addView(sp,LinearLayout.LayoutParams(0,48,1.05f).apply{leftMargin=10})
+    private fun spinnerRowMusic(label: String, options: List<String>, selected: Int, onChange: (Int) -> Unit): LinearLayout = LinearLayout(requireContext()).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        val rowHeight = dp(42)
+        addView(TextView(requireContext()).apply {
+            text = label; textSize = 16f; setTextColor(Color.WHITE); maxLines = 1
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(0, rowHeight, 0.95f))
+        val spinner = Spinner(requireContext()).apply {
+            val adapter = object : ArrayAdapter<String>(requireContext(), android.R.layout.simple_spinner_item, options) {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = TextView(requireContext()).apply {
+                    text = options[position]; textSize = 16f; setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(10, 0, 10, 0)
+                }
+                override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View = TextView(requireContext()).apply {
+                    text = options[position]; textSize = 16f; setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER_VERTICAL; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(12, 0, 12, 0); minimumHeight = dp(42)
+                }
+            }
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            this.adapter = adapter
+            setPopupBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.rgb(45, 45, 45)))
+            setSelection(selected.coerceIn(0, options.lastIndex), false)
+            setBackgroundResource(R.drawable.grey_box)
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener { override fun onNothingSelected(parent: AdapterView<*>?) {} ; override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) { onChange(position) } }
+        }
+        addView(spinner, LinearLayout.LayoutParams(0, rowHeight, 1.05f).apply { leftMargin = 10 })
     }
 
     private fun bindThreeSecondSave(view:View,onSave:()->Unit,onClick:()->Unit){var task:Runnable?=null;var longDone=false;var down=0L;view.setOnTouchListener{v,e->when(e.action){MotionEvent.ACTION_DOWN->{longDone=false;down=System.currentTimeMillis();task?.let(handler::removeCallbacks);task=Runnable{longDone=true;onSave()};handler.postDelayed(task!!,3000);true};MotionEvent.ACTION_UP->{task?.let(handler::removeCallbacks);task=null;if(!longDone&&System.currentTimeMillis()-down<3000){onClick();v.performClick()};true};MotionEvent.ACTION_CANCEL->{task?.let(handler::removeCallbacks);task=null;true};else->true}}}
@@ -481,20 +533,31 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private var pickerColor = intArrayOf(255,0,0,0)
 
     private fun loadPickerColor() {
-        val p = requireContext().getSharedPreferences("music_picker_current", Context.MODE_PRIVATE)
+        val p = requireContext().getSharedPreferences(when(effect){"bpm"->"music_picker_bpm";"spectrum"->"music_picker_spectrum";else->"music_picker_current"}, Context.MODE_PRIVATE)
         pickerColor[0] = p.getInt("r", 255).coerceIn(0,255)
         pickerColor[1] = p.getInt("g", 0).coerceIn(0,255)
         pickerColor[2] = p.getInt("b", 0).coerceIn(0,255)
         pickerColor[3] = p.getInt("w", 0).coerceIn(0,255)
+        if (effect == "bpm") {
+            bpmPickerBrightness = p.getInt("brightness", bpmPickerBrightness).coerceIn(0,100)
+            bpmPickerWhite = p.getInt("white", (pickerColor[3] * 100 / 255)).coerceIn(0,100)
+        } else if (effect == "spectrum") {
+            spectrumPickerBrightness = p.getInt("brightness", spectrumPickerBrightness).coerceIn(0,100)
+            spectrumPickerWhite = p.getInt("white", (pickerColor[3] * 100 / 255)).coerceIn(0,100)
+        }
     }
 
     private fun savePickerColor() {
-        requireContext().getSharedPreferences("music_picker_current", Context.MODE_PRIVATE).edit()
+        val brightness = if(effect=="spectrum") spectrumPickerBrightness else bpmPickerBrightness
+        val white = if(effect=="spectrum") spectrumPickerWhite else bpmPickerWhite
+        requireContext().getSharedPreferences(when(effect){"bpm"->"music_picker_bpm";"spectrum"->"music_picker_spectrum";else->"music_picker_current"}, Context.MODE_PRIVATE).edit()
             .putInt("r", pickerColor[0]).putInt("g", pickerColor[1])
-            .putInt("b", pickerColor[2]).putInt("w", pickerColor[3]).apply()
+            .putInt("b", pickerColor[2]).putInt("w", pickerColor[3])
+            .putInt("brightness", brightness).putInt("white", white).apply()
     }
 
     private fun buildMusicPickerPreview(): View {
+        if (effect == "bpm" || effect == "spectrum") return buildBpmPickerPreview()
         loadPickerColor()
         val box=LinearLayout(requireContext()).apply{
             orientation=LinearLayout.VERTICAL
@@ -522,13 +585,6 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                 // White is an independent Music parameter; changing hue must not alter it.
             }
         })
-        box.addView(TextView(requireContext()).apply{
-            text="Color Brightness"
-            textSize=14f
-            setTextColor(Color.WHITE)
-            setTypeface(typeface,android.graphics.Typeface.BOLD)
-            setPadding(0,12,0,4)
-        })
         val colorBrightness = (maxOf(pickerColor[0], pickerColor[1], pickerColor[2]) * 100 / 255).coerceIn(0,100)
         addLegacyMusicSlider(box,"Color Brightness",colorBrightness,100,"%"){ value ->
             picker.setBrightness(value)
@@ -537,29 +593,76 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             // that listener persists the independent Current Color picker state.
         }
         if(effects.first{it.id==effect}.white || effect=="bpm" || effect=="spectrum"){
-            box.addView(TextView(requireContext()).apply{
-                text="White Brightness"
-                textSize=14f
-                setTextColor(Color.WHITE)
-                setTypeface(typeface,android.graphics.Typeface.BOLD)
-                setPadding(0,14,0,4)
-            })
             addLegacyMusicSlider(box,"White Brightness",(pickerColor[3]*100/255),100,"%"){
                 pickerColor[3]=it*255/100
                 picker.setColorAlpha(it)
                 savePickerColor()
             }
         }
-        val hue=LinearLayout(requireContext()).apply{gravity=Gravity.CENTER}
-        hue.addView(TextView(requireContext()).apply{
-            text="− REV";gravity=Gravity.CENTER;textSize=11f;setTextColor(Color.BLACK)
-            setBackgroundResource(R.drawable.white_box);setOnClickListener{picker.decreaseHue()}
-        },LinearLayout.LayoutParams(0,34,1f).apply{rightMargin=6})
-        hue.addView(TextView(requireContext()).apply{
-            text="+ FWD";gravity=Gravity.CENTER;textSize=11f;setTextColor(Color.BLACK)
-            setBackgroundResource(R.drawable.white_box);setOnClickListener{picker.increaseHue()}
-        },LinearLayout.LayoutParams(0,34,1f).apply{leftMargin=6})
-        box.addView(hue,LinearLayout.LayoutParams(-1,40).apply{topMargin=6})
+        val hue=LinearLayout(requireContext()).apply{gravity=Gravity.CENTER;orientation=LinearLayout.HORIZONTAL}
+        fun hueButton(label:String,click:()->Unit)=TextView(requireContext()).apply{
+            text=label;gravity=Gravity.CENTER;textSize=20f;setTextColor(Color.BLACK)
+            setBackgroundResource(R.drawable.white_box);setOnClickListener{click()}
+        }
+        hue.addView(hueButton("− REV"){picker.decreaseHue()},LinearLayout.LayoutParams(0,dp(36),1f).apply{rightMargin=dp(6)})
+        hue.addView(hueButton("+ FWD"){picker.increaseHue()},LinearLayout.LayoutParams(0,dp(36),1f).apply{leftMargin=dp(6)})
+        box.addView(hue,LinearLayout.LayoutParams(-1,dp(40)).apply{topMargin=dp(6)})
+        return box
+    }
+
+    /** BPM palette editor follows the same interaction/layout rules as Matrix BPM,
+     * while storing its colors and presets in Music-specific preferences. */
+    private fun buildBpmPickerPreview(): View {
+        loadPickerColor()
+        val box=LinearLayout(requireContext()).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(4),dp(8),dp(4),dp(6))}
+        box.addView(TextView(requireContext()).apply{text="Current Color";textSize=16f;setTextColor(Color.WHITE);setTypeface(typeface,android.graphics.Typeface.BOLD);setPadding(0,dp(12),0,dp(8))})
+        val pickerFrame=FrameLayout(requireContext())
+        val picker=ColorPickerView(requireContext())
+        pickerFrame.addView(picker,FrameLayout.LayoutParams(-1,dp(360)))
+        val hue=LinearLayout(requireContext()).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER}
+        fun hueButton(label:String,click:()->Unit)=TextView(requireContext()).apply{
+            text=label;gravity=Gravity.CENTER;textSize=14f;maxLines=1;setPadding(dp(4),0,dp(4),0);setTextColor(Color.BLACK)
+            setBackgroundResource(R.drawable.white_box);setOnClickListener{click()}
+        }
+        hue.addView(hueButton("− REV"){picker.decreaseHue()},LinearLayout.LayoutParams(-2,dp(24)))
+        hue.addView(View(requireContext()),LinearLayout.LayoutParams(0,1,1f))
+        hue.addView(hueButton("+ FWD"){picker.increaseHue()},LinearLayout.LayoutParams(-2,dp(24)))
+        pickerFrame.addView(hue,FrameLayout.LayoutParams(-1,dp(24),Gravity.BOTTOM).apply{leftMargin=dp(4);rightMargin=dp(4);bottomMargin=dp(2)})
+        box.addView(pickerFrame,LinearLayout.LayoutParams(-1,dp(360)))
+        val readout=TextView(requireContext()).apply{gravity=Gravity.CENTER;textSize=13f;setTextColor(Color.WHITE);setPadding(0,dp(8),0,dp(8))}
+        box.addView(readout,LinearLayout.LayoutParams(-1,-2))
+        fun updateFromPicker(){
+            val hsv=picker.getHsv().copyOf()
+            val rgb=Color.HSVToColor(hsv)
+            pickerColor[0]=Color.red(rgb).coerceIn(0,255);pickerColor[1]=Color.green(rgb).coerceIn(0,255);pickerColor[2]=Color.blue(rgb).coerceIn(0,255)
+            val whiteValue = if(effect=="spectrum") spectrumPickerWhite else bpmPickerWhite
+            pickerColor[3]=(whiteValue*255f/100f).roundToInt().coerceIn(0,255)
+            readout.text="RGB ${pickerColor[0]} / ${pickerColor[1]} / ${pickerColor[2]}    W ${pickerColor[3]}"
+            savePickerColor()
+        }
+        picker.setColorChangedListener(object:ColorPickerView.OnColorChangedListener{
+            override fun colorChanged(centerColor:Int,argb:IntArray,hsv:FloatArray){updateFromPicker()}
+        })
+        picker.setColor(255,pickerColor[0],pickerColor[1],pickerColor[2])
+        val initialBrightness = if(effect=="spectrum") spectrumPickerBrightness else bpmPickerBrightness
+        val initialWhite = if(effect=="spectrum") spectrumPickerWhite else bpmPickerWhite
+        picker.setBrightness(initialBrightness)
+        picker.setColorAlpha(GeneralUtil.generateAlphaByWhiteBrightness(initialWhite.toFloat(),initialBrightness.toFloat()))
+        updateFromPicker()
+        val currentBrightness = if(effect=="spectrum") spectrumPickerBrightness else bpmPickerBrightness
+        val currentWhite = if(effect=="spectrum") spectrumPickerWhite else bpmPickerWhite
+        addLegacyMusicSlider(box,"Color Brightness",currentBrightness,100,"%") { value ->
+            if(effect=="spectrum") spectrumPickerBrightness=value else bpmPickerBrightness=value
+            picker.setBrightness(value)
+            picker.setColorAlpha(GeneralUtil.generateAlphaByWhiteBrightness(currentWhite.toFloat(),value.toFloat()))
+            updateFromPicker()
+        }
+        addLegacyMusicSlider(box,"White Brightness",currentWhite,100,"%") { value ->
+            if(effect=="spectrum") spectrumPickerWhite=value else bpmPickerWhite=value
+            pickerColor[3]=(value*255f/100f).roundToInt().coerceIn(0,255)
+            picker.setColorAlpha(GeneralUtil.generateAlphaByWhiteBrightness(value.toFloat(),currentBrightness.toFloat()))
+            updateFromPicker()
+        }
         return box
     }
 
@@ -569,6 +672,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val out=TextView(requireContext()).apply{text="$value$suffix";textSize=14f;setTextColor(Color.WHITE);gravity=Gravity.CENTER_VERTICAL or Gravity.END};labelRow.addView(out,LinearLayout.LayoutParams(dp(60),dp(32)))
         container.addView(labelRow,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8);bottomMargin=dp(5)})
         val bar=LayoutInflater.from(requireContext()).inflate(R.layout.slider_button,container,false);val slider=bar.findViewById<com.google.android.material.slider.Slider>(R.id.viewSlider);val minus=bar.findViewById<ImageView>(R.id.ivMinus);val plus=bar.findViewById<ImageView>(R.id.ivAdd)
+        bar.layoutDirection=View.LAYOUT_DIRECTION_LTR
+        slider.layoutDirection=View.LAYOUT_DIRECTION_LTR
         slider.valueFrom=0f;slider.valueTo=maxValue.toFloat();slider.stepSize=1f;slider.value=value.coerceIn(0,maxValue).toFloat()
         val applyValue={v:Int->val n=v.coerceIn(0,maxValue);slider.value=n.toFloat();out.text="$n$suffix";onChange(n)};minus.setOnClickListener{applyValue(slider.value.toInt()-1)};plus.setOnClickListener{applyValue(slider.value.toInt()+1)};slider.addOnChangeListener{_,v,fromUser->out.text="${v.toInt()}$suffix";if(fromUser)onChange(v.toInt())}
         container.addView(bar,LinearLayout.LayoutParams(-1,dp(35)).apply{bottomMargin=dp(14)})
@@ -645,23 +750,33 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         if(count==0){panel.addView(TextView(requireContext()).apply{text="Hold a color box for 3 seconds to save the current picker color.";setTextColor(Color.LTGRAY);textSize=12f});return}
         activeIndices.forEachIndexed { displayIndex, colorIndex ->
             val row=LinearLayout(requireContext()).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
-            row.addView(TextView(requireContext()).apply{text=if(count<=3) listOf("Low / Bass","Mid","High")[displayIndex] else bandLabel(displayIndex,count);setTextColor(Color.WHITE)},LinearLayout.LayoutParams(0,48,1f))
-            val b=Button(requireContext()).apply{text="Color ${colorIndex+1}";setBackgroundColor(Color.rgb(spectrumColors[colorIndex][0],spectrumColors[colorIndex][1],spectrumColors[colorIndex][2]))}
-            row.addView(b,LinearLayout.LayoutParams(105,48))
-            row.addView(Button(requireContext()).apply {
-                text="×"; minWidth=42
-                setOnClickListener {
-                    spectrumSaved[colorIndex]=false
-                    spectrumColors[colorIndex]=intArrayOf(0,0,0,0)
-                    requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit()
-                        .putInt("$colorIndex.r",0).putInt("$colorIndex.g",0).putInt("$colorIndex.b",0).putInt("$colorIndex.w",0)
-                        .putBoolean("$colorIndex.saved",false).apply()
-                    renderControls()
-                }
-            }, LinearLayout.LayoutParams(48,48))
+            val b=Button(requireContext()).apply{
+                text="Color ${colorIndex+1}"
+                setTextColor(if(musicColorSwatch(spectrumColors[colorIndex])==Color.WHITE) Color.BLACK else Color.WHITE)
+                setBackgroundColor(musicColorSwatch(spectrumColors[colorIndex]))
+            }
+            row.addView(b,LinearLayout.LayoutParams(0,dp(48),1f).apply{rightMargin=dp(6)})
             if(count<=3){
                 val sp=Spinner(requireContext()).apply{
-                    adapter=ArrayAdapter(requireContext(),android.R.layout.simple_spinner_dropdown_item,listOf("Low / Bass","Mid","High"))
+                    val bandOptions=listOf("Low / Bass","Mid","High")
+                    adapter=object : ArrayAdapter<String>(requireContext(),android.R.layout.simple_spinner_item,bandOptions) {
+                        override fun getView(position:Int, convertView:View?, parent:android.view.ViewGroup):View {
+                            val item=super.getView(position,convertView,parent) as TextView
+                            item.setTextColor(Color.WHITE)
+                            item.textSize=14f
+                            item.setPadding(dp(8),0,dp(8),0)
+                            return item
+                        }
+                        override fun getDropDownView(position:Int, convertView:View?, parent:android.view.ViewGroup):View {
+                            val item=super.getDropDownView(position,convertView,parent) as TextView
+                            item.setTextColor(Color.BLACK)
+                            item.setBackgroundColor(Color.WHITE)
+                            item.textSize=14f
+                            item.setPadding(dp(12),dp(8),dp(12),dp(8))
+                            return item
+                        }
+                    }
+                    setPopupBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.WHITE))
                     setSelection(spectrumBandMap[colorIndex].coerceIn(0,2),false)
                     onItemSelectedListener=object:AdapterView.OnItemSelectedListener{
                         override fun onNothingSelected(parent:AdapterView<*>?){ }
@@ -673,21 +788,43 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                         }
                     }
                 }
-                row.addView(sp,LinearLayout.LayoutParams(105,48))
+                row.addView(sp,LinearLayout.LayoutParams(0,dp(48),1.15f).apply{rightMargin=dp(6)})
+            } else {
+                row.addView(TextView(requireContext()).apply{text=bandLabel(displayIndex,count);setTextColor(Color.WHITE);gravity=Gravity.CENTER; textSize=11f},LinearLayout.LayoutParams(0,dp(48),1.15f).apply{rightMargin=dp(6)})
             }
-            panel.addView(row)
+            row.addView(Button(requireContext()).apply {
+                text="×"; minWidth=dp(42)
+                setOnClickListener {
+                    spectrumSaved[colorIndex]=false
+                    spectrumColors[colorIndex]=intArrayOf(0,0,0,0)
+                    requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE).edit()
+                        .putInt("$colorIndex.r",0).putInt("$colorIndex.g",0).putInt("$colorIndex.b",0).putInt("$colorIndex.w",0)
+                        .putBoolean("$colorIndex.saved",false).apply()
+                    renderControls()
+                }
+            }, LinearLayout.LayoutParams(dp(44),dp(48)))
+            panel.addView(row,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(4)})
         }
-        panel.addView(TextView(requireContext()).apply{text=if(count<=3) "1–3 colors: assign each color to Bass / Mid / High. More than 3 colors: 80 Hz–20 kHz is divided into equal logarithmic bands." else "80 Hz – 20 kHz divided into equal logarithmic bands.";setTextColor(Color.LTGRAY);textSize=12f})
+        panel.addView(TextView(requireContext()).apply{text=if(count<=3) "Assign each saved color to Low / Bass, Mid or High. More than 3 colors: 80 Hz–20 kHz is divided into equal frequency bands." else "80 Hz – 20 kHz divided into equal frequency bands.";setTextColor(Color.LTGRAY);textSize=12f})
     }
 
     private fun bandLabel(i:Int,count:Int):String {
         val low=80.0
         val high=20000.0
         val bands=maxOf(1,count)
-        val a=low*Math.pow(high/low, i.toDouble()/bands)
-        val b=low*Math.pow(high/low, (i+1).toDouble()/bands)
+        val a=low+(high-low)*i.toDouble()/bands
+        val b=low+(high-low)*(i+1).toDouble()/bands
         fun fmt(hz:Double)=if(hz>=1000) String.format(java.util.Locale.US,"%.1f kHz",hz/1000.0) else "${hz.toInt()} Hz"
         return "${fmt(a)} – ${fmt(b)}"
+    }
+
+    private fun musicColorSwatch(c:IntArray):Int {
+        val r=c.getOrElse(0){0}.coerceIn(0,255);val g=c.getOrElse(1){0}.coerceIn(0,255)
+        val b=c.getOrElse(2){0}.coerceIn(0,255);val w=c.getOrElse(3){0}.coerceIn(0,255)
+        if(r==0 && g==0 && b==0) return Color.rgb(w,w,w)
+        if(w==0) return Color.rgb(r,g,b)
+        val mix=(w/255f)*0.8f
+        return Color.rgb((r+(255-r)*mix).toInt().coerceIn(0,255),(g+(255-g)*mix).toInt().coerceIn(0,255),(b+(255-b)*mix).toInt().coerceIn(0,255))
     }
 
     private fun activeColorCount(saved:BooleanArray):Int = saved.count { it }
@@ -708,7 +845,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private fun saveColor(index:Int,paletteTarget:Boolean=true){
         val target: MutableList<IntArray> = if (paletteTarget) palette else spectrumColors
         val saved = if(paletteTarget) paletteSaved else spectrumSaved
-        loadPickerColor()
+        if (!(paletteTarget && effect == "bpm")) loadPickerColor()
         target[index]=pickerColor.copyOf()
         saved[index]=true
         requireContext().getSharedPreferences(if(paletteTarget)"music_colors_$effect" else "music_spectrum_colors",Context.MODE_PRIVATE).edit()
@@ -732,10 +869,23 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     private fun loadColors() {
+        val defaultHues = floatArrayOf(0f, 36f, 72f)
+        fun defaultRgb(index: Int): IntArray = if (index < defaultHues.size) {
+            // Canonical hue defaults converted to RGB for preference fallbacks.
+            val color = Color.HSVToColor(floatArrayOf(defaultHues[index], 1f, 1f))
+            intArrayOf(Color.red(color), Color.green(color), Color.blue(color))
+        } else intArrayOf(0, 0, 0)
+
         val p=requireContext().getSharedPreferences("music_colors_$effect",Context.MODE_PRIVATE)
-        repeat(10){i->palette[i][0]=p.getInt("$i.r", if(i==0)255 else if(i==1)255 else if(i==2)255 else 0);palette[i][1]=p.getInt("$i.g", if(i==1)255 else 0);palette[i][2]=p.getInt("$i.b", if(i==2)255 else 0);palette[i][3]=p.getInt("$i.w",0);paletteSaved[i]=p.getBoolean("$i.saved",false)}
+        repeat(10){i->
+            val d=defaultRgb(i)
+            palette[i][0]=p.getInt("$i.r",d[0]);palette[i][1]=p.getInt("$i.g",d[1]);palette[i][2]=p.getInt("$i.b",d[2]);palette[i][3]=p.getInt("$i.w",0);paletteSaved[i]=p.getBoolean("$i.saved",false)
+        }
         val s=requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE)
-        repeat(10){i->spectrumColors[i][0]=s.getInt("$i.r",if(i==0)255 else if(i==1)255 else if(i==2)255 else 0);spectrumColors[i][1]=s.getInt("$i.g",if(i==1)255 else 0);spectrumColors[i][2]=s.getInt("$i.b",if(i==2)255 else 0);spectrumColors[i][3]=s.getInt("$i.w",0);spectrumSaved[i]=s.getBoolean("$i.saved",false);spectrumBandMap[i]=s.getInt("$i.band",i.coerceAtMost(2))}
+        repeat(10){i->
+            val d=defaultRgb(i)
+            spectrumColors[i][0]=s.getInt("$i.r",d[0]);spectrumColors[i][1]=s.getInt("$i.g",d[1]);spectrumColors[i][2]=s.getInt("$i.b",d[2]);spectrumColors[i][3]=s.getInt("$i.w",0);spectrumSaved[i]=s.getBoolean("$i.saved",false);spectrumBandMap[i]=s.getInt("$i.band",i.coerceAtMost(2))
+        }
     }
 
     @RequiresApi(29)
@@ -1206,8 +1356,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val nyquist=22050.0
         val bands=maxOf(1,count)
         val i=index.coerceIn(0,bands-1)
-        val lo=minHz*Math.pow(maxHz/minHz,i.toDouble()/bands)
-        val hi=minHz*Math.pow(maxHz/minHz,(i+1).toDouble()/bands)
+        val lo=minHz+(maxHz-minHz)*i.toDouble()/bands
+        val hi=minHz+(maxHz-minHz)*(i+1).toDouble()/bands
         return (lo/nyquist).toFloat() to (hi/nyquist).toFloat()
     }
 
