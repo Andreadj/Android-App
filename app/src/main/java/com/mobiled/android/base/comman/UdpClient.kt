@@ -1,4 +1,4 @@
-﻿package com.mobiled.android.base.comman
+package com.mobiled.android.base.comman
 
 import android.annotation.SuppressLint
 import android.app.Application
@@ -90,8 +90,10 @@ class UdpClient(private var context: Context) {
             return true
         }
         logMessage(TAG, "openUdpClient() called")
-        ipAddress = getBroadcastIpAddress()
-        openUdpClient(ipAddress!!, com.mobiled.android.base.AppConfiguration.UDP_LOCAL_PORT)
+        // Listen on all local interfaces so Discovery broadcast packets
+        // addressed to the Wi-Fi subnet can be received.
+        ipAddress = InetAddress.getByName("0.0.0.0")
+        openUdpClient(ipAddress!!, AppConfiguration.UDP_LOCAL_PORT, bind = true)
 
         return false
     }
