@@ -991,8 +991,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         if(items.isEmpty()){ Toast.makeText(requireContext(),"No reachable MobileD in this group.",Toast.LENGTH_SHORT).show(); return }
         if(!validMusicGroup(items)){ Toast.makeText(requireContext(),"Music requires consecutive Pixel IDs starting at 0.",Toast.LENGTH_SHORT).show(); return }
 
-        val universe=group.GUniverse.takeIf { it in 32000..32500 }
-            ?: run { Toast.makeText(requireContext(),"Invalid Music GUniverse (32000-32500).",Toast.LENGTH_LONG).show(); return }
+        val universe=group.GUniverse.takeIf { if (group.allDevices) it == 32000 else it in 32010..35000 }
+            ?: run { Toast.makeText(requireContext(),"Invalid Music GUniverse for this group (All Devices: 32000; other groups: 32010-35000).",Toast.LENGTH_LONG).show(); return }
         val gPort=if(group.allDevices) 8890 else group.groupItems.orEmpty()
             .firstOrNull()?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 }
             ?: run { Toast.makeText(requireContext(),"Invalid Music GPort.",Toast.LENGTH_LONG).show(); return }
@@ -1272,7 +1272,13 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         }
         val routeIp=items.firstOrNull()?.hardwareDevice?.ip?.trim().orEmpty()
         if(routeIp.isBlank())return
-        universes.forEach{(u,dmx)->sendSacnUniverse(if(group.allDevices) 8890 else group.groupItems.orEmpty().firstOrNull()?.Gport?.toIntOrNull() ?: 0,u,dmx,routeIp)}
+        universes.forEach{(u,dmx)->
+            // Each group owns exactly ten consecutive universes from its base.
+            // Never send a frame outside that group's reservation.
+            if (u in group.GUniverse..(group.GUniverse + 9)) {
+                sendSacnUniverse(if(group.allDevices) 8890 else group.groupItems.orEmpty().firstOrNull()?.Gport?.toIntOrNull() ?: 0,u,dmx,routeIp)
+            }
+        }
     }
 
     private fun frequencyByteData(samples:ShortArray,n:Int):ByteArray{
@@ -1376,7 +1382,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
 
     private fun sendSacnUniverse(gPort:Int,universe:Int,dmx:ByteArray,routeIp:String){
         if(gPort<1024 || gPort==8889 || gPort==6454 || gPort==5568) return
-        if(universe !in 32000..32500)return
+        if(universe !in 32000..35009)return
         try{
             if(musicSacnSocket==null || musicSacnRouteIp!=routeIp){
                 closeMusicSacnSocket()

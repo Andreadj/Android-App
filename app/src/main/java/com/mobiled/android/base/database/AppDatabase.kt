@@ -14,15 +14,16 @@ import com.mobiled.android.base.model.HardwareGroup
 import com.mobiled.android.base.model.HardwareGroupItem
 import java.util.concurrent.Executors
 
-@Database(entities=[HardwareDevice::class,HardwareGroupItem::class,HardwareGroup::class],version=2,exportSchema=true,autoMigrations=[])
+@Database(entities=[HardwareDevice::class,HardwareGroupItem::class,HardwareGroup::class],version=3,exportSchema=true,autoMigrations=[])
 abstract class AppDatabase:RoomDatabase(){
  abstract fun getHardwareTable():HardwareTableDAO
  abstract fun getGroupTable():GroupTableDAO
  companion object{@Volatile private var INSTANCE:AppDatabase?=null
   private val MIGRATION_1_2 = object : Migration(1,2) { override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("ALTER TABLE HardwareGroupItem ADD COLUMN PixelID INTEGER NOT NULL DEFAULT 0") } }
+  private val MIGRATION_2_3 = object : Migration(2,3) { override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("ALTER TABLE HardwareGroup ADD COLUMN GUniverse INTEGER NOT NULL DEFAULT 32000") } }
   fun getDatabase():AppDatabase=synchronized(this){INSTANCE!!}
   fun getDatabase(context:Context):AppDatabase{if(INSTANCE==null)synchronized(this){if(INSTANCE==null)INSTANCE=buildDatabase(context)};return INSTANCE!!}
-  private fun buildDatabase(context:Context):AppDatabase?{var builder=Room.databaseBuilder(context.applicationContext,AppDatabase::class.java,"Mobile-D-Database").addMigrations(MIGRATION_1_2).allowMainThreadQueries().addCallback(object:RoomDatabase.Callback(){
+  private fun buildDatabase(context:Context):AppDatabase?{var builder=Room.databaseBuilder(context.applicationContext,AppDatabase::class.java,"Mobile-D-Database").addMigrations(MIGRATION_1_2, MIGRATION_2_3).allowMainThreadQueries().addCallback(object:RoomDatabase.Callback(){
    override fun onCreate(db:SupportSQLiteDatabase){
     super.onCreate(db)
     ensureAllDevicesRow(db)

@@ -123,11 +123,27 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), RcvChildListAdapter.Ad
             } catch (e: Exception) {
             }
 
+            // Display order follows Device Name (DevName), never APName.
+            // Keep original list order for Discovery timeout/state work above.
+            val devicesForDisplay = deviceList.sortedWith(
+                compareBy<com.mobiled.android.base.model.HardwareDevice?>(
+                    { it?.devName.orEmpty().trim().lowercase(java.util.Locale.ROOT) },
+                    { it?.devName.orEmpty().trim() }
+                )
+            )
+            val groupsForDisplay = groupList.sortedWith(
+                compareBy<com.mobiled.android.base.model.HardwareGroup>(
+                    { if (it.allDevices || it.groupTitle.equals("All Devices", ignoreCase = true)) 0 else 1 },
+                    { it.groupTitle.trim().lowercase(java.util.Locale.ROOT) },
+                    { it.groupTitle.trim() }
+                )
+            )
+
             val groupItems = arrayListOf<com.mobiled.android.model.ExpandableListItem>(
                 com.mobiled.android.model.ExpandableListItem("Device")
-                    .apply { childItems = deviceList },
+                    .apply { childItems = devicesForDisplay },
                 com.mobiled.android.model.ExpandableListItem("Group")
-                    .apply { childItems = groupList }
+                    .apply { childItems = groupsForDisplay }
             )
 
             viewBinding.viewRcvExpandableList.setItemViewCacheSize(2)

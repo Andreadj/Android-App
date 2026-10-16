@@ -713,7 +713,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
 
     private fun matrixBaseUniverse(items: List<HardwareGroupItem>): Int? {
         val group = (requireActivity() as ControllerActivity).group ?: return null
-        return group.GUniverse.takeIf { it in 32000..32500 }
+        return group.GUniverse.takeIf { if (group.allDevices) it == 32000 else it in 32010..35000 }
     }
 
     private fun send(forceParameterUpdate: Boolean = false) {
@@ -750,7 +750,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
 
         val universe = matrixBaseUniverse(items)
         if (universe == null) {
-            Toast.makeText(requireContext(), "Invalid Matrix GUniverse (32000-32500).", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "Invalid Matrix GUniverse for this group (All Devices: 32000; other groups: 32010-35000).", Toast.LENGTH_LONG).show()
             return
         }
 

@@ -65,12 +65,13 @@ object AppSettingsManager {
             }
             val groupId = if (group.allDevices) "all-devices" else "android-${group.rowId ?: index}"
             val gPort = if (group.allDevices) 8890 else items.firstOrNull()?.Gport?.toIntOrNull() ?: 10000 + index
-            val gUniverse = group.GUniverse.takeIf { it in 32000..32500 } ?: items.asSequence()
-                .mapNotNull { item ->
-                    val raw = item.hardwareDevice?.deviceFrame.orEmpty()
-                    if (raw.isBlank()) null else runCatching { JSONObject(raw).optInt("GUniverse", 32000) }.getOrNull()
-                }
-                .firstOrNull { it in 32000..32500 } ?: 32000
+            val gUniverse = if (group.allDevices) 32000 else
+                group.GUniverse.takeIf { it in 32010..35000 } ?: items.asSequence()
+                    .mapNotNull { item ->
+                        val raw = item.hardwareDevice?.deviceFrame.orEmpty()
+                        if (raw.isBlank()) null else runCatching { JSONObject(raw).optInt("GUniverse", 32000) }.getOrNull()
+                    }
+                    .firstOrNull { it in 32010..35000 } ?: 32010
 
             groupArray.put(JSONObject().apply {
                 put("id", groupId)
@@ -113,6 +114,7 @@ object AppSettingsManager {
         val devicesJson = configuration.optJSONArray("devices") ?: JSONArray()
         val groupsJson = configuration.optJSONArray("groups") ?: JSONArray()
         val usedGroupPorts = HashSet<Int>()
+        val reservedUniverseBases = mutableListOf(32000)
 
         groupDao.deleteHardwareGroupItems()
         groupDao.getHardwareGroupList().forEach { groupDao.deleteItem(it) }
@@ -147,14 +149,28 @@ object AppSettingsManager {
             val name = g.optString("name", "Group ${i + 1}").ifBlank { "Group ${i + 1}" }
             val allDevices = g.optString("id", "").equals("all-devices", true) ||
                 name.equals("All Devices", true)
+            val assignedUniverse = if (allDevices) {
+                32000
+            } else {
+                val importedBase = g.optInt("gUniverse", 32010)
+                val validImported = importedBase.takeIf { base ->
+                    base in 32010..35000 && reservedUniverseBases.none { other -> base < other + 10 && other < base + 10 }
+                }
+                val available = (32010..35000).filter { candidate ->
+                    reservedUniverseBases.none { other -> candidate < other + 10 && other < candidate + 10 }
+                }
+                validImported ?: available.randomOrNull() ?: return false
+            }
             val group = HardwareGroup().apply {
+                // The reserved All Devices group is always rowId=0.
+                if (allDevices) rowId = 0L
                 groupTitle = if (allDevices) "All Devices" else name
                 this.allDevices = allDevices
-                GUniverse = g.optInt("gUniverse", 32000).takeIf { it in 32000..32500 } ?: 32000
+                GUniverse = assignedUniverse
             }
             group.rowId = groupDao.addItem(group)
             if (group.rowId == null || group.rowId == -1L) continue
-            if (allDevices) allDevicesCreated = true
+            if (allDevices) allDevicesCreated = true else reservedUniverseBases.add(group.GUniverse)
 
             val members = g.optJSONArray("members") ?: JSONArray()
             val importedPort = g.optInt("gPort", 0)
@@ -178,15 +194,16 @@ object AppSettingsManager {
                     groupId = group.rowId
                     hardwareDevice = device
                     Gport = gPort
-                    GState = if (allDevices) "X" else if (member.optBoolean("isMaster", false)) "M" else "X"
+                    GState = if (member.optBoolean("isMaster", false)) "M" else "X"
                     PixelID = member.optInt("pixelId", m)
                     selected = true
                 })
             }
             if (groupItems.isNotEmpty()) {
-                if (!allDevices && groupItems.count { it.GState == "M" } == 1) {
+                if (groupItems.count { it.GState == "M" } == 1) {
                     groupItems.forEach { if (it.GState != "M") it.GState = "S" }
-                } else if (!allDevices) {
+                } else {
+                    // No saved master: do not fabricate a Master/Slave topology.
                     groupItems.forEach { it.GState = "X" }
                 }
                 groupDao.insertGroupDevices(groupItems)
@@ -195,6 +212,7 @@ object AppSettingsManager {
 
         if (!allDevicesCreated) {
             val all = HardwareGroup().apply {
+                rowId = 0L
                 groupTitle = "All Devices"
                 allDevices = true
                 GUniverse = 32000

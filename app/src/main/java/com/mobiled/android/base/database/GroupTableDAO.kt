@@ -63,28 +63,27 @@ interface GroupTableDAO {
         if (items.isEmpty()) return
 
         if (allDevices) {
+            // All Devices fixes routing only. GState is an operational role/state
+            // and must not be overwritten merely because of group membership.
             items.forEach {
-                it.Gport = "8890"
-                it.GState = "X"
-                updateGroupDevice(it)
+                if (it.Gport != "8890") {
+                    it.Gport = "8890"
+                    updateGroupDevice(it)
+                }
             }
             return
         }
 
-        val master = items.firstOrNull { it.GState.equals("M", ignoreCase = true) }
         val existingPort = items.asSequence()
             .map { it.Gport.toIntOrNull() }
             .firstOrNull { it in 10000..65535 }
         val port = existingPort?.toString() ?: findFreeGroupPort()
 
         items.forEach { item ->
-            item.Gport = port
-            item.GState = when {
-                master != null && item.gItemRowId == master.gItemRowId -> "M"
-                master != null -> "S"
-                else -> "X"
+            if (item.Gport != port) {
+                item.Gport = port
+                updateGroupDevice(item)
             }
-            updateGroupDevice(item)
         }
     }
 
@@ -111,7 +110,14 @@ interface GroupTableDAO {
             var groupItems=getGroupItems(item.rowId ?: -1L)
             if(item.allDevices && groupItems.isEmpty()) {
                 val created=arrayListOf<HardwareGroupItem>()
-                getDevices().forEachIndexed { index, device -> created.add(HardwareGroupItem().also { it.groupId=item.rowId; it.hardwareDevice=device; it.PixelID=index }) }
+                getDevices().forEachIndexed { index, device -> created.add(HardwareGroupItem().also {
+                    it.groupId=item.rowId
+                    it.hardwareDevice=device
+                    it.PixelID=index
+                    it.Gport="8890"
+                    it.GState="X"
+                    it.selected=true
+                }) }
                 insertGroupDevices(created); groupItems=getGroupItems(item.rowId ?: -1L)
             }
             item.groupItems=groupItems
@@ -171,16 +177,66 @@ interface GroupTableDAO {
             insertGroupDevices(additions)
         }
         getGroupItems(0L).forEach { item ->
-            var changed = false
-            if (item.Gport != "8890") { item.Gport = "8890"; changed = true }
-            if (item.GState != "X") { item.GState = "X"; changed = true }
-            if (changed) updateGroupDevice(item)
+            if (item.Gport != "8890") {
+                item.Gport = "8890"
+                updateGroupDevice(item)
+            }
         }
+
+        // Keep valid reservations stable; repair only missing, legacy, or
+        // overlapping bases. All Devices always owns 32000..32009.
+        if (systemGroup.GUniverse != 32000) {
+            systemGroup.GUniverse = 32000
+            updateItem(systemGroup)
+        }
+        val acceptedBases = mutableListOf(32000)
+        getHardwareGroupListRaw().filter { it.rowId != 0L && !it.allDevices }
+            .sortedBy { it.rowId ?: Long.MAX_VALUE }
+            .forEach { group ->
+                val base = group.GUniverse
+                val valid = base in 32010..35000 && acceptedBases.none { overlapsUniverseBlock(base, it) }
+                if (!valid) {
+                    group.GUniverse = chooseFreeUniverse(acceptedBases)
+                    updateItem(group)
+                }
+                acceptedBases.add(group.GUniverse)
+            }
     }
+
+    private fun overlapsUniverseBlock(base: Int, otherBase: Int): Boolean =
+        base < otherBase + 10 && otherBase < base + 10
+
+    private fun chooseFreeUniverse(reservedBases: List<Int>): Int {
+        val candidates = (32010..35000).filter { candidate ->
+            reservedBases.none { overlapsUniverseBlock(candidate, it) }
+        }
+        check(candidates.isNotEmpty()) { "No free 10-universe block remains in 32010..35000" }
+        return candidates.random()
+    }
+
+    private fun assignUniverseIfNeeded(group: HardwareGroup) {
+        if (group.allDevices || group.rowId == 0L) {
+            group.GUniverse = 32000
+            return
+        }
+        val others = getHardwareGroupListRaw()
+            .filter { it.rowId != group.rowId && !it.allDevices }
+            .map { it.GUniverse }
+            .filter { it in 32010..35000 }
+        val current = group.GUniverse
+        if (current in 32010..35000 && others.none { overlapsUniverseBlock(current, it) }) return
+        group.GUniverse = chooseFreeUniverse(listOf(32000) + others)
+    }
+
     @Transaction fun addGroup(group: HardwareGroup): Boolean {
+        ensureAllDevicesGroup()
+        assignUniverseIfNeeded(group)
         if(group.rowId==null) { group.rowId=addItem(group); if(group.rowId==-1L) return false }
         else { if(updateItem(group)!=1) return false; deleteGroupDevices(group.rowId!!) }
-        group.groupItems?.forEach { it.groupId=group.rowId }
+        group.groupItems?.forEach {
+            it.groupId=group.rowId
+            if (group.allDevices) it.Gport = "8890"
+        }
         group.groupItems?.let { insertGroupDevices(it) }
         return true
     }

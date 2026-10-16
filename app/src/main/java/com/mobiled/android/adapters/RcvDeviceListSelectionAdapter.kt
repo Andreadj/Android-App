@@ -13,6 +13,7 @@ import com.mobiled.android.databinding.ItemDeviceSelectionBinding
 
 class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectionAdapter.ViewHolder>() {
     private var itemList: List<HardwareGroupItem> = emptyList()
+    private var sourceItems: List<HardwareGroupItem> = emptyList()
     private var singleItemSelection = false
     private var showPixelId = false
     private var currentViewHolder: ViewHolder? = null
@@ -93,7 +94,15 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
     }
 
     fun setItems(items: List<HardwareGroupItem>, singleItemSelection: Boolean = false, showPixelId: Boolean = false) {
-        itemList = ArrayList(items)
+        // Sort visible rows by Device Name (DevName), never by APName.
+        // Preserve source ordering for selected results.
+        sourceItems = ArrayList(items)
+        itemList = items.sortedWith(
+            compareBy<HardwareGroupItem>(
+                { it.hardwareDevice?.devName.orEmpty().trim().lowercase(java.util.Locale.ROOT) },
+                { it.hardwareDevice?.devName.orEmpty().trim() }
+            )
+        )
         this.singleItemSelection = singleItemSelection
         this.showPixelId = showPixelId
         currentViewHolder = null
@@ -102,5 +111,5 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
 
     fun getItems() = itemList
     override fun getItemCount(): Int = itemList.size
-    fun getSelectedItems(): List<HardwareGroupItem> = itemList.filter { it.selected }
+    fun getSelectedItems(): List<HardwareGroupItem> = sourceItems.filter { it.selected }
 }

@@ -262,15 +262,10 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     }
 
     private fun hydrateGroupUniverseFromDiscovery() {
-        val g = group ?: return
-        val discovered = g.groupItems.orEmpty().asSequence()
-            .mapNotNull { item ->
-                val raw = item.hardwareDevice?.deviceFrame.orEmpty()
-                if (raw.isBlank()) null
-                else runCatching { JSONObject(raw).optInt("GUniverse", 32000) }.getOrNull()
-            }
-            .firstOrNull { it in 32000..32500 }
-        if (discovered != null) g.GUniverse = discovered
+        // GUniverse belongs to the saved group configuration, not to an
+        // arbitrary device's Discovery frame. The database migration and DAO
+        // allocator are responsible for legacy/default group bases.
+        group?.let { if (it.allDevices) it.GUniverse = 32000 }
     }
 
     private fun bindUI() {

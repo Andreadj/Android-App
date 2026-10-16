@@ -47,27 +47,17 @@ class GroupViewModel(var repository: DeviceRepository) : BaseViewModel() {
         if (items.isEmpty()) return
 
         if (group.allDevices) {
-            items.forEach {
-                it.Gport = "8890"
-                it.GState = "X"
-            }
+            // This group has a fixed command port; its members' GState is not
+            // inferred from group type. The effect decides the outgoing state.
+            items.forEach { it.Gport = "8890" }
             return
         }
 
-        val master = items.firstOrNull { it.GState.equals("M", ignoreCase = true) }
         val existingPort = items.asSequence()
             .map { it.Gport.toIntOrNull() }
             .firstOrNull { it in 10000..65535 }
         val port = existingPort?.toString() ?: generatePortNumber()
-
-        items.forEach { item ->
-            item.Gport = port
-            item.GState = when {
-                master != null && item === master -> "M"
-                master != null -> "S"
-                else -> "X"
-            }
-        }
+        items.forEach { item -> item.Gport = port }
     }
 
     private fun generatePortNumber(): String {
