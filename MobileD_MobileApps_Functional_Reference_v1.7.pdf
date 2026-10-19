@@ -1,0 +1,224 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R 9 0 R 11 0 R ] /Count 4 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 4650 >>
+stream
+BT /F2 21.0 Tf 1 0 0 1 48.0 762.28 Tm (MobileD \227 Mobile Apps Functional Reference) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 736.08 Tm (Revisione v1.7 \227 allineamento PC v8.4 e correzioni Android All Devices, Breath/Heartbeat e Tap Sync) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 719.88 Tm (Data: 19/10/2026) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 692.08 Tm (Autorit\340 e limiti) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 665.88 Tm (\225 Specifica di protocollo: MobileD PC App Functional Reference FINAL v8.4, PC App 0.20.44, checkpoint) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 651.68 Tm (dichiarato dce50802ebc8abb0299e7a98176cb8131caf3587.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 635.48 Tm (\225 Implementazione Android esaminata: repository Andreadj/Android-App, branch master, HEAD 83e1488; i) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 621.27997 Tm (file Kotlin e Gradle modificati localmente non fanno parte di quel commit.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 605.07996 Tm (\225 Questa revisione sostituisce le formulazioni funzionali in conflitto degli appunti mobile) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 590.87994 Tm (v1.1\226v1.6. Mantiene separate le regole della specifica PC e le evidenze statiche Android.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 574.67993 Tm (\225 L\222ispezione del sorgente non certifica il comportamento su hardware. Non \350 stato eseguito in questa) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 560.4799 Tm (revisione un nuovo test fisico. La presenza di una regola in questo documento non equivale a una) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 546.2799 Tm (prova runtime.) Tj ET
+BT /F2 9.5 Tf 1 0 0 1 48.0 525.7399 Tm (IMPORTANT) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48.0 511.19992 Tm (Discovery \350 la fonte autorevole dello stato reale del dispositivo. I comandi locali non devono diventare) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 48.0 497.6599 Tm (una sostituzione dello stato Discovery.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 470.85992 Tm (1. Protocollo) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 446.24393 Tm (Elemento   |   Regola) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 432.62793 Tm (Discovery UDP   |   8232) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 419.01193 Tm (Comandi App ? MobileD   |   UDP 8889) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 405.39594 Tm (Art-Net   |   UDP 6454) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 391.77994 Tm (sACN / E1.31   |   UDP 5568) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 378.16394 Tm (Command   |   0 = OFF, 1 = ON, 2 = FLASH) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 364.54794 Tm (GLights   |   0 = Color; 1\22699 = Legacy; 100 = Music; 101\226199 = Matrix) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 350.93195 Tm (GState   |   X = diretto/locale; M = Master; S = Slave) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 337.31595 Tm (Porta All Devices   |   GPort=8890) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 323.69995 Tm (Affidabilit\340 comando   |   Invio immediato; dopo 50 ms senza un comando pi\371 recente, 3 ritrasmissioni a intervalli) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 311.08395 Tm (di 15 ms) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 297.46796 Tm (ON/OFF   |   Preservare payload configurato/ricevuto; cambiare solo Command) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 277.26794 Tm (Color resta sul proprio percorso e usa GLights=0. Music usa GLights=100; Matrix usa i codici 101\226199.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 263.06793 Tm (La correzione delle funzioni Matrix/Music non deve cambiare il protocollo Color o Legacy.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 235.26793 Tm (2. Universi e porte dei gruppi) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 210.65193 Tm (Contesto   |   Base / prenotazione   |   Porta) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 197.03593 Tm (All Devices   |   Base fissa 32000; blocco riservato 32000\22632009   |   8890) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 183.41994 Tm (Gruppo utente   |   Base casuale tra 32010 e 35000 inclusi; prenota 10 universi da base a base+9   |   Porta del) Tj ET
+BT /F1 8.8 Tf 1 0 0 1 48.0 170.80394 Tm (gruppo, almeno 10000) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 150.60394 Tm (Prima di assegnare un blocco a un gruppo utente, controllare tutte le prenotazioni per evitare) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 136.40395 Tm (sovrapposizioni. Salvare la base assegnata e riutilizzarla dopo riavvio e import/export. Eliminare un) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 122.20395 Tm (gruppo libera il suo blocco; non rinumerare gli altri gruppi. Il valore 35000 \350 il limite della base) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 108.00395 Tm (assegnabile; il blocco riservato pu\362 arrivare a base+9.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 86.803955 Tm (Per Music e per i frame distribuiti, la mappatura RGBW \350:) Tj ET
+BT /F1 8 Tf 1 0 0 1 48.0 26 Tm (MobileD - riferimento funzionale v1.7) Tj ET
+BT /F1 8 Tf 1 0 0 1 502.0 26 Tm (1 / 4) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 5552 >>
+stream
+BT /F1 10.0 Tf 1 0 0 1 48.0 776.8 Tm (\225 universo: GUniverse + floor\(PixelID / 128\);) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 760.6 Tm (\225 canale iniziale: \(PixelID mod 128\) \327 4 + 1;) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 744.39996 Tm (\225 128 PixelID per universo, 512 canali DMX.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 723.19995 Tm (Android assegna e persiste la base nel modello/database del gruppo, ripara basi assenti o sovrapposte) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 708.99994 Tm (e forza All Devices a 32000. L\222import/export conserva la base valida o assegna un blocco libero) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 694.7999 Tm (quando quella importata \350 assente/non valida. Verifica statica del codice; persistenza dopo) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 680.5999 Tm (riavvio/import-export non verificata su dispositivo in questa revisione.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 652.7999 Tm (3. Selezione dei gruppi e PixelID) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 626.5999 Tm (Quando si apre un controller, Android cattura lo snapshot dei membri Discovery-online con IP valido.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 612.3999 Tm (La selezione Matrix usa il prefisso operativo della virtual strip: ID distinti da 0 fino al primo ID) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 598.1999 Tm (mancante; ogni membro online con lo stesso PixelID resta incluso nella posizione corrispondente.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 576.9999 Tm (Esempio: gli ID 0,1,2,2,4,5,8,1,0 producono un prefisso operativo 0,1,2 e PixelCount=3. Gli ID) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 562.79987 Tm (duplicati sono consentiti e non aumentano PixelCount. Un dispositivo online aggiunto dopo la cattura) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 548.59985 Tm (non entra nello snapshot; i dispositivi offline non partecipano alla selezione corrente e non devono) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 534.39984 Tm (bloccare il gruppo solo perch\351 restano nell\222inventario.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 513.1998 Tm (Music usa uno snapshot separato di tutti i membri online del gruppo. Gli ID devono essere nel range) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 498.99982 Tm (Android 0\2261023 e i valori distinti devono essere consecutivi a partire da 0; duplicati sono ammessi.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 484.7998 Tm (PixelCount \350 il numero di PixelID distinti. Music non usa Master/Slave.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 463.5998 Tm (Discrepanza da risolvere prima del rilascio: il controller Android filtra la strip Matrix a PixelID) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 449.39978 Tm (0\226255; il PDF PC v8.4 non specifica un limite Matrix equivalente. Non estendere o documentare quel) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 435.19977 Tm (limite come requisito PC senza una decisione funzionale verificata.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 407.39978 Tm (4. Matrix) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 381.19977 Tm (\225 Matrix richiede esattamente un Master; il Master deve avere PixelID 0. Gli altri membri operativi) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 366.99976 Tm (sono Slave.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 350.79974 Tm (\225 Android usa la strip consecutiva online; gli ID duplicati rappresentano pi\371 dispositivi sulla) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 336.59973 Tm (stessa posizione virtuale.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 320.39972 Tm (\225 Una selezione esplicita di effetto configura tutti i membri online interessati con il payload) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 306.1997 Tm (completo e l\222indirizzamento del gruppo.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 289.9997 Tm (\225 Una modifica di parametri dello stesso effetto pu\362 essere inviata al solo Master quando Discovery) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 275.79968 Tm (conferma, per ogni membro online, effetto, ruolo, porta, universo, PixelID e PixelCount attesi. Se la) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 261.59967 Tm (conferma manca, Android riconfigura il gruppo online.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 245.39967 Tm (\225 Ogni payload Matrix conserva il Command letto dal Discovery del destinatario. La selezione) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 231.19968 Tm (dell\222effetto non forza ON; OFF rimane OFF. L\222azione ON/OFF \350 l\222unica che cambia intenzionalmente il) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 216.99968 Tm (campo Command.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 200.79968 Tm (\225 Il payload comprende i campi previsti dall\222effetto: GLights, Speed, Brightness, GState, GPort,) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 186.59969 Tm (GUniverse, PixelID, PixelCount, ColorCount, Random, Custom1/2/3, OnOff1/2 e Colors secondo) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 172.39969 Tm (applicabilit\340.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 156.19969 Tm (\225 Il rendering distribuito \350 compito del firmware; Android configura il gruppo e non genera una copia) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 141.9997 Tm (dell\222effetto per ciascuno Slave.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 125.7997 Tm (\225 I controlli Tap Sync Matrix sono presenti per gli effetti 101 e 105; la corrispondenza temporale) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 111.5997 Tm (resta da verificare su hardware.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 95.399704 Tm (\225 Legacy Strobe \(GLights=8\): un tap equivale a due flash. Android raddoppia il BPM misurato e) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 81.19971 Tm (converte il risultato usando la curva firmware: Speed 1\22680 = 1\226200 BPM, Speed 80\226100 = 200\2261500 BPM.) Tj ET
+BT /F1 8 Tf 1 0 0 1 48.0 26 Tm (MobileD - riferimento funzionale v1.7) Tj ET
+BT /F1 8 Tf 1 0 0 1 502.0 26 Tm (2 / 4) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 5134 >>
+stream
+BT /F1 10.0 Tf 1 0 0 1 48.0 776.8 Tm (Non applicare un limite a 200 BPM prima della conversione.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 749.0 Tm (5. Music) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 722.8 Tm (\225 Music \350 un effetto guidato dall\222App, usa GLights=100 e non usa Master/Slave.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 706.6 Tm (\225 La selezione iniziale della sessione invia ai destinatari il payload di routing completo: Command,) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 692.39996 Tm (GLights, GPort, GUniverse, PixelID, PixelCount.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 676.19995 Tm (\225 GPort \350 8890 per All Devices o la porta assegnata al gruppo; GUniverse \350 la base persistita del) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 661.99994 Tm (gruppo.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 645.7999 Tm (\225 Android conserva per ogni destinatario il Command presente nel suo Discovery. Non deduce ON/OFF) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 631.5999 Tm (dall\222effetto selezionato. La discrepanza tra questa regola per-destinazione e una formulazione) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 617.3999 Tm (storica che calcola un singolo Command per il gruppo \350 risolta qui in favore dello stato Discovery) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 603.1999 Tm (per-device.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 586.9999 Tm (\225 Il cambio di sottotipo Music nella stessa sessione aggiorna l\222elaborazione dell\222App e non invia un) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 572.79987 Tm (nuovo comando UDP di routing. Il cambio di gruppo/sessione richiede una nuova selezione e un nuovo) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 558.59985 Tm (routing.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 542.39984 Tm (\225 Il frame realtime \350 separato dal comando di selezione e viene trasmesso via sACN multicast, con) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 528.1998 Tm (limite di circa 30 fps \(un frame ogni ~33 ms\).) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 511.99982 Tm (\225 La cattura Android usa la cattura di playback disponibile sulla piattaforma Android; non \350 la) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 497.7998 Tm (cattura system-loopback desktop della PC App. Permessi, foreground service e disponibilit\340 della) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 483.5998 Tm (sorgente audio devono essere verificati sul dispositivo.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 467.39978 Tm (\225 Android implementa Rainbow, Random, Rainbow Chase, BPM, Spectrum e VU Meter. Le differenze di) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 453.19977 Tm (piattaforma audio non autorizzano gain o normalizzazioni non presenti nel contratto.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 425.39978 Tm (6. All Devices e Master) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 399.19977 Tm (All Devices \350 il gruppo di sistema: contiene tutti i MobileD rilevati, non si rinomina e non consente) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 384.99976 Tm (di aggiungere o rimuovere membri dall\222editor. In Edit Group sono modificabili i PixelID; il Master si) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 370.79974 Tm (assegna dalla schermata Master/Slave. Selezionare/toccare il campo PixelID di un dispositivo online) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 356.59973 Tm (con IP valido invia un singolo {"Command":2} a UDP 8889 per identificarlo; non cambia lo stato) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 342.39972 Tm (Discovery.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 321.1997 Tm (Nella schermata Master/Slave Android mostra i membri online al momento della selezione; il Master) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 306.9997 Tm (scelto viene impostato a PixelID 0 e gli altri membri online diventano Slave. Il modello e il) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 292.79968 Tm (percorso di import/export conservano l\222indicazione Master. La persistenza runtime del Master All) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 278.59967 Tm (Devices dopo riapertura e import/export richiede ancora una prova funzionale su dispositivo.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 250.79967 Tm (7. Verifica Android registrata) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 48.0 222.61966 Tm (Evidenze statiche) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 200.41966 Tm (\225 Allocatore e persistenza GUniverse: GroupTableDAO.kt, AppSettingsManager.kt, modello) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 186.21967 Tm (HardwareGroup.kt.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 170.01967 Tm (\225 Snapshot, validazione Matrix/Music e invio comandi: ControllerActivity.kt, MatrixFragment.kt,) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 155.81967 Tm (MusicFragment.kt.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 139.61967 Tm (\225 Matrix preserva il Command Discovery per destinatario e non promuove automaticamente OFF a ON.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 123.41968 Tm (\225 Music invia il routing completo alla selezione iniziale e conserva il Command Discovery di ciascun) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 109.21968 Tm (destinatario.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 93.019684 Tm (\225 Breath e Heartbeat includono Speed e mantengono invariati i campi colore correnti quando cambia) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 78.81969 Tm (solo Speed.) Tj ET
+BT /F1 8 Tf 1 0 0 1 48.0 26 Tm (MobileD - riferimento funzionale v1.7) Tj ET
+BT /F1 8 Tf 1 0 0 1 502.0 26 Tm (3 / 4) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 12 0 R >>
+endobj
+12 0 obj
+<< /Length 2990 >>
+stream
+BT /F1 10.0 Tf 1 0 0 1 48.0 776.8 Tm (\225 All Devices blocca modifica nome/appartenenza; la selezione PixelID invia Command=2 solo al) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 762.6 Tm (dispositivo online con IP valido.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 746.39996 Tm (\225 Import/export rappresenta il Master salvato; la persistenza runtime resta da provare su hardware.) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 48.0 723.22 Tm (Build e limiti) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 701.01996 Tm (L\222ultima verifica automatica registrata ha avuto esito positivo per :app:testDebugUnitTest e) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 686.81995 Tm (:app:assembleDebug. In questa correzione :app:assembleDebug \350 riuscito e la versione \350 stata) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 672.61993 Tm (installata/avviata sul dispositivo Xiaomi M2101K9AG. Non \350 stato ancora eseguito un test funzionale) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 658.4199 Tm (dei flash/effetti sui MobileD.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 637.2199 Tm (Configurazione locale esaminata: Android Gradle Plugin 8.13.2, Gradle wrapper 8.13,) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 623.0199 Tm (compileSdk/targetSdk 34, minSdk 26, versione app 2.0.8. I file Gradle hanno modifiche locali: non) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 608.8199 Tm (sono incluse in 83e1488.) Tj ET
+BT /F2 11.5 Tf 1 0 0 1 48.0 585.6399 Tm (Prove fisiche ancora necessarie) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 563.4399 Tm (1. All Devices con solo una parte dei dispositivi online: invio e avvio Matrix/Music.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 547.23987 Tm (2. Gruppo Matrix M/S: selezione effetto, parametri, cambio gruppo, Discovery OFF/ON e indirizzamento) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 533.03986 Tm (dei duplicati PixelID.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 516.83984 Tm (3. Music: routing completo, cambio sottotipo senza nuovo comando UDP, sACN e permesso/cattura audio.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 500.63983 Tm (4. Master All Devices: salvataggio e persistenza dopo chiusura/riapertura e import/export.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 484.43982 Tm (5. Tap Sync/flash: conteggio tap confrontato con i flash firmware.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 468.2398 Tm (6. Effetti e stati dispositivi online/offline, inclusi Discovery incompleti/non validi.) Tj ET
+BT /F2 15.0 Tf 1 0 0 1 48.0 440.43982 Tm (8. Stato dei file e consegna) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 414.2398 Tm (Questa revisione v1.7 \350 il sorgente Markdown modificabile della specifica mobile. Il PDF v1.7 \350 stato) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 400.0398 Tm (rigenerato da questo documento e accompagna la revisione nel repository. Il PDF v1.4 risulta) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 385.83978 Tm (cancellato nel working tree.) Tj ET
+BT /F1 10.0 Tf 1 0 0 1 48.0 364.63977 Tm (Nessun commit, push o modifica alla PC App o al firmware \350 stato eseguito.) Tj ET
+BT /F1 8 Tf 1 0 0 1 48.0 26 Tm (MobileD - riferimento funzionale v1.7) Tj ET
+BT /F1 8 Tf 1 0 0 1 502.0 26 Tm (4 / 4) Tj ET
+endstream
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000141 00000 n 
+0000000238 00000 n 
+0000000340 00000 n 
+0000000476 00000 n 
+0000005177 00000 n 
+0000005313 00000 n 
+0000010916 00000 n 
+0000011053 00000 n 
+0000016239 00000 n 
+0000016377 00000 n 
+trailer
+<< /Size 13 /Root 1 0 R /Info << /Title (MobileD Functional Reference v1.7) /Author (MobileD) >> >>
+startxref
+19419
+%%EOF

@@ -115,6 +115,6 @@ Configurazione locale esaminata: Android Gradle Plugin 8.13.2, Gradle wrapper 8.
 
 ## 8. Stato dei file e consegna
 
-Questa revisione v1.7 è il sorgente Markdown modificabile della specifica mobile. Il PDF v1.6 nel repository è binario e in workspace non è stato trovato un sorgente editoriale né un convertitore PDF utilizzabile; perciò non viene sostituito né dichiarato aggiornato da questo file. Il PDF v1.4 risulta già cancellato nel working tree prima di questa revisione e non è stato ripristinato.
+Questa revisione v1.7 è il sorgente Markdown modificabile della specifica mobile. Il PDF v1.7 è stato rigenerato da questo documento e accompagna la revisione nel repository. Il PDF v1.4 risulta cancellato nel working tree.
 
 Nessun commit, push o modifica alla PC App o al firmware è stato eseguito.
