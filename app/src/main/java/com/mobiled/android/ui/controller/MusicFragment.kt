@@ -46,12 +46,10 @@ import java.net.Inet4Address
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
-import kotlin.math.log10
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.pow
@@ -107,6 +105,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private var musicSacnNetworkInterface: NetworkInterface? = null
     private var musicSacnRouteIp = ""
     private val musicSequences = HashMap<Int,Int>()
+    private val musicSacnLastLogAt = HashMap<String,Long>()
     private var lastLevel = 0f
     private lateinit var root: LinearLayout
     private lateinit var title: TextView
@@ -133,9 +132,13 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private var beatPulse = false
     private var prevEnergy = 0f
     private val energyHistory = ArrayList<Float>()
-    private var frequencySmoothing = FloatArray(256)
     private var lightLevel = 0f
     private var spectrumLightLevels = FloatArray(0)
+    private val spectrumInput = FloatArray(2048)
+    private val spectrumFftReal = DoubleArray(2048)
+    private val spectrumFftImag = DoubleArray(2048)
+    private var spectrumWriteIndex = 0
+    private var spectrumSamplesWritten = 0
     private var rainbowHue = 0f
     private var chaseOffset = 0f
     private var randomHues = FloatArray(0)
@@ -313,9 +316,9 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             loadColors()
             loadRuntimeState()
             renderControls()
-            // Changing the Music effect is local to the App. The MobileD routing
-            // command is sent only when Music capture/selection is started.
-            if(!running) ensureCaptureAndStart()
+            // Match the PC App: send the Music routing command before requesting
+            // capture permissions or starting AudioRecord.
+            if (!running && sendMusicSelection()) ensureCaptureAndStart()
         } catch (e: Throwable) {
             android.util.Log.e("MobileDMusic", "Music effect selection failed", e)
             Toast.makeText(requireContext(), "Music could not be started: ${e.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
@@ -869,7 +872,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     private fun loadColors() {
-        val defaultHues = floatArrayOf(0f, 36f, 72f)
+        val defaultHues = floatArrayOf(0f, 120f, 240f)
         fun defaultRgb(index: Int): IntArray = if (index < defaultHues.size) {
             // Canonical hue defaults converted to RGB for preference fallbacks.
             val color = Color.HSVToColor(floatArrayOf(defaultHues[index], 1f, 1f))
@@ -879,12 +882,12 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val p=requireContext().getSharedPreferences("music_colors_$effect",Context.MODE_PRIVATE)
         repeat(10){i->
             val d=defaultRgb(i)
-            palette[i][0]=p.getInt("$i.r",d[0]);palette[i][1]=p.getInt("$i.g",d[1]);palette[i][2]=p.getInt("$i.b",d[2]);palette[i][3]=p.getInt("$i.w",0);paletteSaved[i]=p.getBoolean("$i.saved",false)
+            palette[i][0]=p.getInt("$i.r",d[0]);palette[i][1]=p.getInt("$i.g",d[1]);palette[i][2]=p.getInt("$i.b",d[2]);palette[i][3]=p.getInt("$i.w",0);paletteSaved[i]=p.getBoolean("$i.saved",i < 3)
         }
         val s=requireContext().getSharedPreferences("music_spectrum_colors",Context.MODE_PRIVATE)
         repeat(10){i->
             val d=defaultRgb(i)
-            spectrumColors[i][0]=s.getInt("$i.r",d[0]);spectrumColors[i][1]=s.getInt("$i.g",d[1]);spectrumColors[i][2]=s.getInt("$i.b",d[2]);spectrumColors[i][3]=s.getInt("$i.w",0);spectrumSaved[i]=s.getBoolean("$i.saved",false);spectrumBandMap[i]=s.getInt("$i.band",i.coerceAtMost(2))
+            spectrumColors[i][0]=s.getInt("$i.r",d[0]);spectrumColors[i][1]=s.getInt("$i.g",d[1]);spectrumColors[i][2]=s.getInt("$i.b",d[2]);spectrumColors[i][3]=s.getInt("$i.w",0);spectrumSaved[i]=s.getBoolean("$i.saved",i < 3);spectrumBandMap[i]=s.getInt("$i.band",i.coerceAtMost(2))
         }
     }
 
@@ -893,17 +896,20 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val p=projection ?: return
         if(running)return
         try{
-            val sr=44100;val minBuffer=AudioRecord.getMinBufferSize(sr,AudioFormat.CHANNEL_IN_STEREO,AudioFormat.ENCODING_PCM_16BIT);if(minBuffer<=0)throw IllegalStateException("AudioRecord buffer unavailable")
+            // The selection command was sent before requesting capture authorization.
+            // Do not resend here: Discovery may already have changed after navigation.
+            val sr=48000;val minBuffer=AudioRecord.getMinBufferSize(sr,AudioFormat.CHANNEL_IN_STEREO,AudioFormat.ENCODING_PCM_16BIT);if(minBuffer<=0)throw IllegalStateException("AudioRecord buffer unavailable")
             val cfg=AudioPlaybackCaptureConfiguration.Builder(p).addMatchingUsage(AudioAttributes.USAGE_MEDIA).addMatchingUsage(AudioAttributes.USAGE_GAME).build()
             recorder=AudioRecord.Builder().setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_IN_STEREO).build()).setBufferSizeInBytes(max(8192,minBuffer*2)).setAudioPlaybackCaptureConfig(cfg).build();recorder?.startRecording();if(recorder?.recordingState!=AudioRecord.RECORDSTATE_RECORDING)throw IllegalStateException("AudioRecord did not start")
-            running=true
             lastBeat=0L
             beatPeriodMs=600L
             prevEnergy=0f
             energyHistory.clear()
             lightLevel=0f
             spectrumLightLevels=FloatArray(0)
-            frequencySmoothing=FloatArray(256)
+            spectrumInput.fill(0f)
+            spectrumWriteIndex=0
+            spectrumSamplesWritten=0
             rainbowHue=0f
             chaseOffset=0f
             randomHues=FloatArray(0)
@@ -913,8 +919,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             bpmTransitionMode="fade"
             musicSequenceCid=UUID.randomUUID().toString().replace("-", "").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
             lastMusicFrameAt=0L
-            sendMusicSelection()
-            worker=Thread{loop(44100)}.also{it.start()}
+            running=true
+            worker=Thread{loop(sr)}.also{it.start()}
          }catch(e:Exception){
              recorder?.release();recorder=null;running=false;stopMusicKeepAlive()
              android.util.Log.e("MobileDMusic", "Music AudioRecord capture failed: ${e.javaClass.name}: ${e.message}", e)
@@ -969,38 +975,41 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     private fun onlineMembers():List<HardwareGroupItem> =
-        (requireActivity() as ControllerActivity).getControllerVirtualStripSnapshot().sortedBy { it.PixelID }
+        (requireActivity() as ControllerActivity).getControllerMusicVirtualStripSnapshot()
 
-    private fun musicPixelIds(items:List<HardwareGroupItem>):List<Int> = items.map { it.PixelID.coerceIn(0,1023) }.sorted()
+    private fun musicPixelIds(items:List<HardwareGroupItem>):List<Int> =
+        items.map { it.PixelID }.distinct().sorted()
 
     private fun validMusicGroup(items:List<HardwareGroupItem>):Boolean {
         if(items.isEmpty()) return false
-        val ids=musicPixelIds(items)
-        val uniqueIds=ids.distinct()
-        return uniqueIds==uniqueIds.indices.toList()
+        val uniqueIds=musicPixelIds(items)
+        return uniqueIds.firstOrNull() == 0 &&
+            uniqueIds.withIndex().all { it.value == it.index }
     }
 
-    private fun sendMusicSelection() {
+    private fun sendMusicSelection(): Boolean {
         saveRuntimeState()
         val a=requireActivity() as ControllerActivity
-        if(!a.canOpenDistributedEffects("Music")) return
+        if(!a.canOpenDistributedEffects("Music")) return false
         val group=a.group ?: run {
-            Toast.makeText(requireContext(),"Music requires a group.",Toast.LENGTH_SHORT).show(); return
+            Toast.makeText(requireContext(),"Music requires a group.",Toast.LENGTH_SHORT).show(); return false
         }
+        // Validate and route the online snapshot captured when this group
+        // was selected. Offline inventory rows do not participate in Music.
         val items=onlineMembers()
-        if(items.isEmpty()){ Toast.makeText(requireContext(),"No reachable MobileD in this group.",Toast.LENGTH_SHORT).show(); return }
-        if(!validMusicGroup(items)){ Toast.makeText(requireContext(),"Music requires consecutive Pixel IDs starting at 0.",Toast.LENGTH_SHORT).show(); return }
+        if(items.isEmpty()){
+            Toast.makeText(requireContext(),"No reachable MobileD in this group.",Toast.LENGTH_SHORT).show(); return false
+        }
+        if(!validMusicGroup(items)){
+            Toast.makeText(requireContext(),"Music requires consecutive Pixel IDs starting at 0.",Toast.LENGTH_LONG).show(); return false
+        }
 
         val universe=group.GUniverse.takeIf { if (group.allDevices) it == 32000 else it in 32010..35000 }
-            ?: run { Toast.makeText(requireContext(),"Invalid Music GUniverse for this group (All Devices: 32000; other groups: 32010-35000).",Toast.LENGTH_LONG).show(); return }
+            ?: run { Toast.makeText(requireContext(),"Invalid Music GUniverse for this group (All Devices: 32000; other groups: 32010-35000).",Toast.LENGTH_LONG).show(); return false }
         val gPort=if(group.allDevices) 8890 else group.groupItems.orEmpty()
             .firstOrNull()?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 }
-            ?: run { Toast.makeText(requireContext(),"Invalid Music GPort.",Toast.LENGTH_LONG).show(); return }
+            ?: run { Toast.makeText(requireContext(),"Invalid Music GPort.",Toast.LENGTH_LONG).show(); return false }
 
-        val command=if(items.any {
-            val raw=it.hardwareDevice?.deviceFrame.orEmpty()
-            raw.isNotBlank() && JSONObject(raw).optInt("Command",0)==1
-        }) 1 else 0
         val total=musicPixelIds(items).distinct().size
         val client=UdpClient.getClient(requireContext())
 
@@ -1010,8 +1019,11 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             val d=item.hardwareDevice ?: return@forEach
             val ip=d.ip?.trim().orEmpty()
             if(ip.isBlank()) return@forEach
+            val discovery=JSONObject(d.deviceFrame.ifBlank { "{}" })
+            if(!discovery.has("Command")) return@forEach
             val payload=JSONObject().apply{
-                put("Command", command)
+                // Preserve the current device state from Discovery.
+                put("Command", discovery.optInt("Command",0))
                 put("GLights",100)
                 put("GPort",gPort)
                 put("GUniverse",universe)
@@ -1023,6 +1035,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                 d.rememberSentCommand(payload)
             }
         }
+        return true
     }
 
     private fun loop(sr:Int) {
@@ -1042,8 +1055,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                 }
                 val raw=max(left,right).coerceIn(0f,1f)
                 val now=System.currentTimeMillis()
-                val fd=frequencyByteData(buf,n)
-                val low=(0 until 18).map { (fd[it].toInt() and 0xff).toFloat()/255f }.average().toFloat()
+                val fd=frequencyByteData(buf,n,sr)
+                val low=(0 until 18).map { fd[it]/255f }.average().toFloat()
                 val energy=.72f*low+.28f*raw
 
                 energyHistory.add(energy)
@@ -1072,7 +1085,14 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                 }
                 if(now-lastMusicFrameAt>=33L){
                     lastMusicFrameAt=now
-                    renderFrame(fd,n,raw,left,right,now)
+                    // Rendering/routing failures must not terminate AudioRecord.
+                    // In particular, transient Activity/Fragment lifecycle changes
+                    // while navigating to Home must not be treated as capture failure.
+                    try {
+                        renderFrame(fd,n,raw,left,right,now,sr)
+                    } catch (frameError: Throwable) {
+                        android.util.Log.e("MobileDMusic", "Music frame render/routing failed; audio capture remains active", frameError)
+                    }
                 }
             }
         } catch (e: Throwable) {
@@ -1113,7 +1133,6 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     private fun smoothSpectrumLevel(index:Int,target:Float,dt:Float):Float{
-        if(spectrumLightLevels.size!=onlineMembers().size)spectrumLightLevels=FloatArray(onlineMembers().size)
         val current=spectrumLightLevels.getOrElse(index){0f}
         val delta=target.coerceIn(0f,1f)-current
         val magnitude=abs(delta)
@@ -1144,10 +1163,10 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         return max(c[0],max(c[1],c[2]))/255f
     }
 
-    private fun writeMusicPixel(out:MutableList<IntArray>,index:Int,hue:Float,level:Float,whiteExtra:Float=0f){
+    private fun writeMusicPixel(out:MutableList<IntArray>,index:Int,hue:Float,level:Float,whiteExtra:Float=0f,useGlobalWhite:Boolean=true){
         val rgb=Color.HSVToColor(floatArrayOf(((hue%360f)+360f)%360f,1f,1f))
         val b=brightness.coerceIn(0,100)/100f
-        val whiteValue=Math.max(whiteExtra,this.white/100f*255f)
+        val whiteValue=if(useGlobalWhite) Math.max(whiteExtra,this.white/100f*255f) else whiteExtra.coerceIn(0f,255f)
         out[index]=intArrayOf(
             (Color.red(rgb)*level*b).roundToInt().coerceIn(0,255),
             (Color.green(rgb)*level*b).roundToInt().coerceIn(0,255),
@@ -1156,12 +1175,16 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         )
     }
 
-    private fun renderFrame(fd:ByteArray,n:Int,level:Float,leftLevel:Float,rightLevel:Float,now:Long) {
+    private fun renderFrame(fd:FloatArray,n:Int,level:Float,leftLevel:Float,rightLevel:Float,now:Long,sampleRate:Int) {
         val a=requireActivity() as ControllerActivity
         val group=a.group ?: return
-        val items=onlineMembers()
-        if(items.isEmpty())return
-        val count=musicPixelIds(items).distinct().size.coerceAtLeast(1)
+        // Render and route only the online devices in the consecutive PixelID
+        // prefix selected for this group. Duplicate IDs share a strip position.
+        val configuredItems=onlineMembers()
+        val routeItems=configuredItems
+        if(configuredItems.isEmpty())return
+        val count=configuredItems.map { it.PixelID }.distinct().size
+        if(spectrumLightLevels.size!=count)spectrumLightLevels=FloatArray(count)
         val dt=.033f
         val frame=MutableList(count){intArrayOf(0,0,0,0)}
 
@@ -1223,7 +1246,9 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                         }
                         else->{h=to;l=level}
                     }
-                    for(i in 0 until count)writeMusicPixel(frame,i,h,l,white.toFloat()/100f*255f)
+                    // The PC MusicEngine renders saved BPM colors by hue only;
+                    // the global White control supplies the RGBW white channel.
+                    for(i in 0 until count)writeMusicPixel(frame,i,h,l)
                 }
             }
             "spectrum"->{
@@ -1234,13 +1259,14 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                         val groupIndex=min(colorCount-1,(i*colorCount)/max(1,count))
                         val bandIndex=if(colorCount<=3)spectrumBandMap[assign[groupIndex]].coerceIn(0,2) else groupIndex
                         val range=bandRange(bandIndex,if(colorCount<=3)3 else colorCount)
-                        val e=audioBand(fd,range.first,range.second)
-                        val raw=(e*.72f).coerceIn(0f,1f)
+                        val e=audioBand(fd,range.first,range.second,sampleRate)
+                        val raw=(e*12f).coerceIn(0f,1f)
                         val l=smoothSpectrumLevel(i,raw,dt)
                         val c=spectrumColors[assign[groupIndex]]
                         val h=hueForColor(c)
-                        val whiteValue=c[3].coerceIn(0,255).toFloat()
-                        writeMusicPixel(frame,i,h,l,whiteValue)
+                        // The PC MusicEngine uses the saved hue and applies
+                        // the global White control to the RGBW frame.
+                        writeMusicPixel(frame,i,h,l)
                     }
                 }
             }
@@ -1262,7 +1288,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         }
 
         val universes=HashMap<Int,ByteArray>()
-        items.forEach{item->
+        configuredItems.forEach{item->
             val pixel=item.PixelID
             val u=group.GUniverse+floor(pixel/128.0).toInt()
             val ch=(pixel%128)*4
@@ -1270,35 +1296,40 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             val p=frame.getOrElse(pixel){intArrayOf(0,0,0,0)}
             dmx[ch]=p[0].toByte();dmx[ch+1]=p[1].toByte();dmx[ch+2]=p[2].toByte();dmx[ch+3]=p[3].toByte()
         }
-        val routeIp=items.firstOrNull()?.hardwareDevice?.ip?.trim().orEmpty()
+        val routeIp=routeItems.firstOrNull()?.hardwareDevice?.ip?.trim().orEmpty()
         if(routeIp.isBlank())return
+        val gPort=if(group.allDevices) 8890 else group.groupItems.orEmpty()
+            .firstOrNull()?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 } ?: return
         universes.forEach{(u,dmx)->
             // Each group owns exactly ten consecutive universes from its base.
-            // Never send a frame outside that group's reservation.
             if (u in group.GUniverse..(group.GUniverse + 9)) {
-                sendSacnUniverse(if(group.allDevices) 8890 else group.groupItems.orEmpty().firstOrNull()?.Gport?.toIntOrNull() ?: 0,u,dmx,routeIp)
+                sendSacnUniverse(gPort,u,dmx,routeIp)
             }
         }
     }
 
-    private fun frequencyByteData(samples:ShortArray,n:Int):ByteArray{
-        val size=512
-        val real=DoubleArray(size)
-        val imag=DoubleArray(size)
-        var p=0
-        var t=0
-        while(p+1<n && t<size){
-            val mono=(samples[p].toInt()+samples[p+1].toInt())/(2.0*32768.0)
-            val window=0.42-0.5*kotlin.math.cos(2.0*Math.PI*t/(size-1))+0.08*kotlin.math.cos(4.0*Math.PI*t/(size-1))
-            real[t]=mono*window
-            p+=2
-            t++
+    private fun frequencyByteData(samples:ShortArray,n:Int,sampleRate:Int):FloatArray {
+        val size=spectrumInput.size
+        var sourceIndex=0
+        while(sourceIndex+1<n){
+            spectrumInput[spectrumWriteIndex]=
+                (samples[sourceIndex].toInt()+samples[sourceIndex+1].toInt())/(2f*32768f)
+            spectrumWriteIndex=(spectrumWriteIndex+1)%size
+            spectrumSamplesWritten=(spectrumSamplesWritten+1).coerceAtMost(size)
+            sourceIndex+=2
         }
 
-        // Android AudioRecord does not expose Web Audio's AnalyserNode.
-        // Reproduce the PC analyser's 512-point frequency path here: the
-        // same Blackman window and the same 0.05 magnitude smoothing used by
-        // the PC MusicEngine's AnalyserNode configuration.
+        val real=spectrumFftReal
+        val imag=spectrumFftImag
+        imag.fill(0.0)
+        var windowSum=0.0
+        for(i in 0 until size){
+            val sampleIndex=(spectrumWriteIndex+i)%size
+            val window=.5-.5*kotlin.math.cos(2.0*Math.PI*i/(size-1))
+            real[i]=spectrumInput[sampleIndex]*window
+            windowSum+=window
+        }
+
         var j=0
         for(i in 1 until size){
             var bit=size shr 1
@@ -1336,35 +1367,36 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             len=len shl 1
         }
 
-        val out=ByteArray(256)
-        for(k in 0 until 256){
-            val mag=2.0*sqrt(real[k]*real[k]+imag[k]*imag[k])/size
-            val smoothed=frequencySmoothing[k]*0.05+mag*0.95
-            frequencySmoothing[k]=smoothed.toFloat()
-            val db=20.0*log10(max(1e-8,smoothed))
-            out[k]=((db+100.0)/70.0*255.0).roundToInt().coerceIn(0,255).toByte()
+        val scale=if(windowSum>0.0)2.0/windowSum else 0.0
+        return FloatArray(size/2+1){k->
+            (kotlin.math.hypot(real[k],imag[k])*scale).toFloat()
         }
-        return out
     }
 
-    private fun audioBand(fd:ByteArray,a:Float,b:Float):Float{
-        val lo=max(0,floor(a*255f).toInt())
-        val hi=min(255,max(lo+1,kotlin.math.ceil(b*255f).toInt()))
-        var sum=0f
-        var n=0
-        for(i in lo until hi){sum+=(fd[i].toInt() and 0xff)/255f;n++}
-        return if(n>0)sum/n else 0f
+    private fun audioBand(fd:FloatArray,minHz:Double,maxHz:Double,sampleRate:Int):Float {
+        val size=spectrumInput.size
+        val low=max(1,kotlin.math.ceil(minHz*size/sampleRate).toInt())
+        val high=min(fd.lastIndex,floor(maxHz*size/sampleRate).toInt())
+        if(high<low)return 0f
+        var energy=0.0
+        for(bin in low..high){
+            val magnitude=fd[bin].toDouble()
+            energy+=magnitude*magnitude
+        }
+        return sqrt(energy).toFloat()
     }
 
-    private fun bandRange(index:Int,count:Int):Pair<Float,Float>{
+    private fun bandRange(index:Int,count:Int):Pair<Double,Double> {
         val minHz=80.0
-        val maxHz=20000.0
-        val nyquist=22050.0
-        val bands=maxOf(1,count)
-        val i=index.coerceIn(0,bands-1)
-        val lo=minHz+(maxHz-minHz)*i.toDouble()/bands
-        val hi=minHz+(maxHz-minHz)*(i+1).toDouble()/bands
-        return (lo/nyquist).toFloat() to (hi/nyquist).toFloat()
+        val maxHz=12000.0
+        if(count<=3){
+            val ranges=arrayOf(80.0 to 250.0,250.0 to 2000.0,2000.0 to 12000.0)
+            return ranges[index.coerceIn(0,2)]
+        }
+        val ratio=maxHz/minHz
+        val i=index.coerceIn(0,count-1)
+        return minHz*ratio.pow(i.toDouble()/count) to
+            minHz*ratio.pow((i+1).toDouble()/count)
     }
 
     private fun interpolateHue(a:Float,b:Float,t:Float):Float{
@@ -1381,47 +1413,52 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     private fun sendSacnUniverse(gPort:Int,universe:Int,dmx:ByteArray,routeIp:String){
-        if(gPort<1024 || gPort==8889 || gPort==6454 || gPort==5568) return
-        if(universe !in 32000..35009)return
+        // Match PC App 0.20.44 transport exactly: the configured group's GPort
+        // is the UDP destination port; the universe selects the sACN multicast
+        // address. Packet is the PC's 127-byte header plus 512 DMX slots.
+        if(gPort !in 1024..65535 || gPort==8889 || gPort==6454 || gPort==5568 ||
+            universe !in 1..63999 || dmx.size < 512 || routeIp.isBlank()) return
         try{
-            if(musicSacnSocket==null || musicSacnRouteIp!=routeIp){
+            if(musicSacnSocket==null || musicSacnRouteIp!="$routeIp:$gPort"){
                 closeMusicSacnSocket()
                 val socket=MulticastSocket()
                 socket.timeToLive=1
                 socket.reuseAddress=true
                 musicSacnNetworkInterface=findInterfaceForRoute(routeIp)
-                if(musicSacnNetworkInterface!=null)socket.networkInterface=musicSacnNetworkInterface
+                if(musicSacnNetworkInterface!=null) socket.networkInterface=musicSacnNetworkInterface
                 musicSacnSocket=socket
-                musicSacnRouteIp=routeIp
+                musicSacnRouteIp="$routeIp:$gPort"
             }
             val socket=musicSacnSocket ?: return
             val seq=((musicSequences[universe] ?: 0)+1) and 255
             musicSequences[universe]=seq
-            val p=ByteArray(127+512)
-            fun u16(o:Int,v:Int){p[o]=((v shr 8) and 255).toByte();p[o+1]=(v and 255).toByte()}
-            u16(0,0x0010);u16(2,0)
+            val p=ByteArray(639)
+            fun u16(o:Int,v:Int){ p[o]=((v ushr 8) and 255).toByte(); p[o+1]=(v and 255).toByte() }
+            fun u32(o:Int,v:Int){ p[o]=(v ushr 24).toByte(); p[o+1]=(v ushr 16).toByte(); p[o+2]=(v ushr 8).toByte(); p[o+3]=v.toByte() }
+            u16(0,0x0010); u16(2,0)
             byteArrayOf(0x41,0x53,0x43,0x2d,0x45,0x31,0x2e,0x31,0x37,0,0,0).copyInto(p,4)
-            u16(16,0x727e);u32(p,18,4,musicSequenceCid)
-            musicSequenceCid.copyInto(p,22)
-            u16(38,0x704d);u32(p,40,2,musicSequenceCid)
+            u16(16,0x727E); u32(18,4)
+            musicSequenceCid.copyInto(p,22,0,min(16,musicSequenceCid.size))
+            u16(38,0x704D); u32(40,2)
             "MobileD Music".toByteArray(Charsets.US_ASCII).copyInto(p,44)
             p[108]=100
-            u16(109,0)
-            p[111]=seq.toByte()
-            u16(112,0)
-            u16(114,universe)
-            u16(116,0x720b)
-            p[118]=2;p[119]=0xA1.toByte()
-            u16(120,0)
-            u16(122,1)
-            u16(124,513)
-            p[126]=0
+            u16(109,0); p[111]=seq.toByte(); u16(112,0); u16(114,universe)
+            u16(116,0x720B); p[118]=0x02; p[119]=0xA1.toByte()
+            u16(120,0); u16(122,1); u16(124,513); p[126]=0
             dmx.copyInto(p,127,0,512)
-            val addr=InetAddress.getByName("239.255.${(universe shr 8) and 255}.${universe and 255}")
+            val addr=InetAddress.getByName("239.255.${(universe ushr 8) and 255}.${universe and 255}")
             socket.send(DatagramPacket(p,p.size,addr,gPort))
+            val logKey="$routeIp:$gPort:$universe"
+            val now=System.currentTimeMillis()
+            if(now-(musicSacnLastLogAt[logKey] ?: 0L)>=1000L){
+                musicSacnLastLogAt[logKey]=now
+                val activeChannels=dmx.count { (it.toInt() and 0xff)!=0 }
+                val firstRgbw=(0..3).joinToString(",") { (dmx[it].toInt() and 0xff).toString() }
+                android.util.Log.i("MobileDMusic", "sACN sent GPort=$gPort universe=$universe route=$routeIp bytes=${p.size} activeChannels=$activeChannels firstRGBW=$firstRgbw")
+            }
         }catch(e:Exception){
             closeMusicSacnSocket()
-            android.util.Log.e("MobileDMusic","sACN send failed",e)
+            android.util.Log.e("MobileDMusic","sACN send failed for GPort $gPort, universe $universe",e)
         }
     }
 

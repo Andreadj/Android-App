@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.mobiled.android.adapters.RcvDeviceListSelectionAdapter
+import com.mobiled.android.base.comman.UdpClient
 import com.mobiled.android.base.model.HardwareGroup
 import com.mobiled.android.base.model.HardwareGroupItem
 import com.mobiled.android.base.network.Status
@@ -60,7 +61,7 @@ class MasterSlaveActivity :
     private fun setupListeners() {
         binding.nextButton.setOnClickListener {
             masterItem = rcvMasterDeviceList.getSelectedItems().firstOrNull()
-            slaveItems = hardwareGroup?.groupItems.orEmpty()
+            slaveItems = rcvMasterDeviceList.getItems()
 
             if (masterItem == null) {
                 showDialog("Important",
@@ -108,34 +109,51 @@ class MasterSlaveActivity :
         }
     }
 
+    private fun isOnlineAtSelection(item: HardwareGroupItem): Boolean {
+        val device = item.hardwareDevice ?: return false
+        if (device.ip.isNullOrBlank()) return false
+        return UdpClient.getClient(applicationContext)
+            .isDiscoveryOnline(device.ApName.orEmpty())
+    }
+
     private fun bindItemList(groupItemList: List<HardwareGroupItem>) {
-        masterItem = groupItemList.find { it.GState.equals("M") }
-        prePort = masterItem?.Gport ?: "-1"
-        groupItemList.forEach { item ->
+        val onlineItems = groupItemList.filter(::isOnlineAtSelection)
+        masterItem = onlineItems.find { it.GState.equals("M", ignoreCase = true) }
+        prePort = if (hardwareGroup?.allDevices == true) "8890" else masterItem?.Gport ?: "-1"
+        onlineItems.forEach { item ->
             item.selected = item.gItemRowId == masterItem?.gItemRowId
         }
-        rcvMasterDeviceList.setItems(groupItemList, true)
+        rcvMasterDeviceList.setItems(onlineItems, true)
     }
 
     private fun saveMasterDevice() {
+        val selectedMasterId = masterItem?.gItemRowId
+        val onlineItems = slaveItems.filter(::isOnlineAtSelection)
+        if (selectedMasterId == null || onlineItems.none { it.gItemRowId == selectedMasterId }) {
+            showToast("The selected Master is no longer online. Refresh the group and try again.")
+            return
+        }
+
         binding.viewIncLoader.viewLoader.show()
         CoroutineScope(Dispatchers.IO).launch {
-            val tempMap = slaveItems.associateBy({ it.gItemRowId ?: 0L }, { "" })
             if (prePort.equals("-1")) prePort = generatePortNumber()
+            // The selected Master is always the virtual strip origin.
+            // Preserve every other configured PixelID; duplicate IDs are valid.
+            masterItem?.PixelID = 0
+            val onlineIds = onlineItems.mapNotNull { it.gItemRowId }.toSet()
             hardwareGroup?.groupItems?.forEach {
                 when {
-                    masterItem?.gItemRowId == it.gItemRowId -> {
+                    it.gItemRowId == selectedMasterId -> {
                         it.Gport = prePort
                         it.GState = "M"
                     }
 
-                    tempMap.contains(it.gItemRowId) -> {
+                    it.gItemRowId in onlineIds -> {
                         it.Gport = prePort
                         it.GState = "S"
                     }
 
                     else -> {
-                        it.Gport = "8889"
                         it.GState = "X"
                     }
                 }

@@ -22,12 +22,20 @@ class AddGroupActivity : com.mobiled.android.base.BaseActivity<ActivityAddGroupB
         rcvDeviceListSelectionAdapter=RcvDeviceListSelectionAdapter()
         binding.rcvDeviceList.layoutManager=LinearLayoutManager(this);binding.rcvDeviceList.adapter=rcvDeviceListSelectionAdapter
         binding.buttonSave.setOnClickListener {
-            val items=rcvDeviceListSelectionAdapter.getSelectedItems()
+            val allDevices = group?.allDevices == true
+            val items = if (allDevices) {
+                rcvDeviceListSelectionAdapter.getItems().onEach { it.selected = true }
+            } else {
+                rcvDeviceListSelectionAdapter.getSelectedItems()
+            }
             if(items.isEmpty()){showToast("No devices selected!");return@setOnClickListener}
-            if(binding.viewGroupName.text.isNullOrEmpty()){showToast("Enter valid group title!");return@setOnClickListener}
+            if(!allDevices && binding.viewGroupName.text.isNullOrEmpty()){showToast("Enter valid group title!");return@setOnClickListener}
             val ids=items.map{it.PixelID}
             if(ids.any{it !in 0..1023}){showToast("Pixel IDs must be in the range 0-1023!");return@setOnClickListener}
-            group?.groupItems=items;group?.groupTitle=binding.viewGroupName.text.toString();binding.viewLoader.show();viewModel.onSaveButtonPressed(group!!)
+            group?.groupItems=items
+            if (!allDevices) group?.groupTitle=binding.viewGroupName.text.toString()
+            binding.viewLoader.show()
+            viewModel.onSaveButtonPressed(group!!)
         }
     }
     override fun onResume(){super.onResume();binding.viewLoader.show();viewModel.getGroupAsync(groupId)}
@@ -36,7 +44,19 @@ class AddGroupActivity : com.mobiled.android.base.BaseActivity<ActivityAddGroupB
     override fun getViewModelObject()=GroupViewModel(DeviceRepository(this))
     override fun registerObservers(){
         viewModel.HardwareGroupResult.observe(this){result->
-            if(result.status==com.mobiled.android.base.network.Status.SUCCESS){group=(result as Success<HardwareGroup>).value;if(group?.rowId!=null)binding.viewGroupName.setText(group?.groupTitle ?: "N/A");rcvDeviceListSelectionAdapter.setItems(group?.groupItems.orEmpty(),false,true)}
+            if(result.status==com.mobiled.android.base.network.Status.SUCCESS){
+                group=(result as Success<HardwareGroup>).value
+                val allDevices = group?.allDevices == true
+                if(group?.rowId!=null) binding.viewGroupName.setText(group?.groupTitle ?: "N/A")
+                binding.viewGroupName.isEnabled = !allDevices
+                rcvDeviceListSelectionAdapter.setItems(
+                    group?.groupItems.orEmpty(),
+                    singleItemSelection = false,
+                    showPixelId = true,
+                    membershipEditable = !allDevices,
+                    identifyOnPixelIdSelection = allDevices
+                )
+            }
             updateUI();binding.viewLoader.hide()
         }
         viewModel.SaveHardwareGroupResult.observe(this){r->binding.viewLoader.hide();if(r.status==com.mobiled.android.base.network.Status.SUCCESS){showToast("Operation success");setResult(RESULT_OK);finish()}else{showToast("Operation failed, ${(r as Failure).errorMessage}");setResult(RESULT_CANCELED)}}

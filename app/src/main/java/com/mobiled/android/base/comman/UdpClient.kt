@@ -282,7 +282,9 @@ class UdpClient(private var context: Context) {
         }
         if (udpSocket != null) {
             listeningStarted = true
-            var buffer: ByteArray = kotlin.ByteArray(1024)
+            // UDP payloads may be larger than the old 1 KiB cap, especially when a
+            // Discovery frame includes a complete Matrix configuration.
+            val buffer = ByteArray(65_507)
             val packet = DatagramPacket(buffer, buffer.size)
             logMessage("TAG", "UDP@startListen Invoked")
             Thread(Runnable {
@@ -304,12 +306,12 @@ class UdpClient(private var context: Context) {
                     lastExTime = System.currentTimeMillis()
 
                     var pExTime = System.currentTimeMillis()
-                    receivePacket(packet)
+                    val received = receivePacket(packet)
                     logMessage(
                         TAG,
                         "Packet Receive Time :" + (System.currentTimeMillis() - pExTime)
                     )
-                    handlePacket(packet)
+                    if (received) handlePacket(packet)
                 }
                 logMessage("TAG", "UDP@startListen Thread Loop End")
                 listeningStarted = false
@@ -323,18 +325,17 @@ class UdpClient(private var context: Context) {
 
     private fun handlePacket(receivePacket: DatagramPacket) {
         try {
-            val bytes = Arrays.copyOf(receivePacket.data, receivePacket.length)
-            System.arraycopy(
-                receivePacket.getData(),
-                receivePacket.getOffset(),
-                bytes,
-                0,
-                receivePacket.getLength()
-            );
+            val length = receivePacket.length
+            if (length <= 0) return
+            val bytes = Arrays.copyOfRange(
+                receivePacket.data,
+                receivePacket.offset,
+                receivePacket.offset + length
+            )
             //var byteLen = BytesUtil.findSize(bytes)
-            if (bytes.size != 0) {
+            if (bytes.isNotEmpty()) {
 //                val _tmpBytes = BytesUtil.removeBytes(bytes)
-                var _data: String = String(bytes)
+                val _data = String(bytes, Charsets.UTF_8)
                 try {
                     var json = JSONObject(_data)
                     if (json.has("APName")) {
@@ -549,15 +550,15 @@ class UdpClient(private var context: Context) {
                         String(bytes)
                     }, ipAddress = $bcAddress, port = $port"
                 )
-                val bcSock = DatagramSocket().apply {
-                    broadcast = true
-                }
-                try {
-                    val dp =
-                        DatagramPacket(bytes, bytes.size, InetAddress.getByName(bcAddress), port)
-                    bcSock.send(dp)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                DatagramSocket().use { bcSock ->
+                    bcSock.broadcast = true
+                    try {
+                        val dp =
+                            DatagramPacket(bytes, bytes.size, InetAddress.getByName(bcAddress), port)
+                        bcSock.send(dp)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
                 true
             }

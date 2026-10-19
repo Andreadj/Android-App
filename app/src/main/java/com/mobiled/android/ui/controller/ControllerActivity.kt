@@ -45,6 +45,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     // selection implicitly.
     private var controllerSelectionSnapshot: MutableList<GroupCommandTarget>? = null
     private var controllerVirtualStripSnapshot: MutableList<GroupCommandTarget>? = null
+    private var controllerMusicSnapshot: MutableList<GroupCommandTarget>? = null
     private var controllerSelectionEffect: Int = -1
 
     // Discovery callbacks can remain queued after this Activity is destroyed.
@@ -416,21 +417,37 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return false
         }
 
-        // PC App 0.20.42: Matrix requires exactly one Master at PixelID 0
-        // and all other members as Slaves. Music is different: it is an
-        // App-driven virtual-strip function and does NOT use Master/Slave.
+        // The selection snapshot contains only online devices with valid IPs.
+        // Music and Matrix then use the distinct consecutive PixelID prefix
+        // starting at 0, retaining every online device assigned to each ID.
+        val onlineCandidates = (controllerSelectionSnapshot
+            ?: captureControllerSelection(currentControllerEffect()))
+            .map { it.item }
         if (feature.equals("Music", ignoreCase = true)) {
-            val ids = items.map { it.PixelID }.sorted()
-            val uniqueIds = ids.distinct()
-            if (uniqueIds.isEmpty() || uniqueIds.first() != 0 ||
-                uniqueIds.withIndex().any { it.value != it.index }) {
-                Toast.makeText(this, "Music requires consecutive Pixel IDs starting at 0.", Toast.LENGTH_LONG).show()
+            val musicItems = getControllerMusicVirtualStripSnapshot()
+            if (musicItems.isEmpty()) {
+                Toast.makeText(this, "No online MobileD in the consecutive PixelID prefix starting at 0.", Toast.LENGTH_LONG).show()
                 return false
             }
             return true
         }
 
-        val masters = items.filter { it.GState.equals("M", ignoreCase = true) }
+        val candidatesByPixelId = onlineCandidates
+            .filter { it.PixelID in 0..255 }
+            .groupBy { it.PixelID }
+        val onlineItems = ArrayList<HardwareGroupItem>()
+        for (pixelId in 0..255) {
+            val bucket = candidatesByPixelId[pixelId].orEmpty()
+            if (bucket.isEmpty()) break
+            // Duplicate PixelIDs are multiple devices at the same position.
+            onlineItems.addAll(bucket)
+        }
+        if (onlineItems.isEmpty()) {
+            Toast.makeText(this, "No online MobileD in the consecutive PixelID prefix starting at 0.", Toast.LENGTH_LONG).show()
+            return false
+        }
+
+        val masters = onlineItems.filter { it.GState.equals("M", ignoreCase = true) }
         if (masters.size != 1) {
             Toast.makeText(this, "$feature: Master (M) is missing. The group must have exactly one M.", Toast.LENGTH_LONG).show()
             return false
@@ -439,7 +456,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             Toast.makeText(this, "$feature: Pixel ID 0 is missing. The Master (M) must have PixelID 0.", Toast.LENGTH_LONG).show()
             return false
         }
-        if (items.any { !it.GState.equals("M", ignoreCase = true) && !it.GState.equals("S", ignoreCase = true) }) {
+        if (onlineItems.any { !it.GState.equals("M", ignoreCase = true) && !it.GState.equals("S", ignoreCase = true) }) {
             Toast.makeText(this, "$feature requires all other group members to be Slaves (S).", Toast.LENGTH_LONG).show()
             return false
         }
@@ -680,11 +697,13 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             if (!discovery.has("Command")) return
             val currentEffect = discovery.optInt("GLights", -1)
             val effectId = if (GLights != -1) GLights else currentEffect
-            // Strobe's Speed and RGBW values are one logical configuration.
-            // buildLegacyPayload() emits only standard fields plus overrides,
-            // so seed every Strobe update with persisted settings before applying
-            // the field explicitly changed by the user.
-            val overrides = if (effectId == 8) legacyEffectOverrides(effectId) else JSONObject()
+            val base = legacySendBase(d, effectId)
+            val currentEffectBase = base.takeIf { it.optInt("GLights", -1) == effectId }
+            // Breath and Heartbeat speed edits must retain their current
+            // color fields because buildLegacyPayload emits only overrides.
+            val overrides = if (effectId == 4 || effectId == 8 || effectId == 12) {
+                legacyEffectOverrides(effectId, currentEffectBase)
+            } else JSONObject()
             if (Speed != -1) overrides.put("Speed", Speed)
             if (Brightness != -1) overrides.put("Brightness", Brightness)
             if (red != -1) overrides.put("red", red)
@@ -692,7 +711,6 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             if (blue != -1) overrides.put("blue", blue)
             if (white != -1) overrides.put("white", white)
             if (hue != -1) overrides.put("hue", hue)
-            val base = legacySendBase(d, effectId)
             val outgoing = buildLegacyPayload(base, effectId, overrides, "X", "8889")
                 .put("Command", discovery.optInt("Command", 0))
                 .toString()
@@ -719,11 +737,13 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             if (!discovery.has("Command")) return@forEach
 
             val effectId = if (GLights != -1) GLights else currentEffect
-            // Strobe's Speed and RGBW values are one logical configuration.
-            // buildLegacyPayload() emits only standard fields plus overrides,
-            // so seed every Strobe update with persisted settings before applying
-            // the field explicitly changed by the user.
-            val overrides = if (effectId == 8) legacyEffectOverrides(effectId) else JSONObject()
+            val base = legacySendBase(hardwareDevice, effectId)
+            val currentEffectBase = base.takeIf { it.optInt("GLights", -1) == effectId }
+            // Preserve Discovery/active color fields when only Breath or
+            // Heartbeat Speed changes; selection uses the saved effect values.
+            val overrides = if (effectId == 4 || effectId == 8 || effectId == 12) {
+                legacyEffectOverrides(effectId, currentEffectBase)
+            } else JSONObject()
             if (Speed != -1) overrides.put("Speed", Speed)
             if (Brightness != -1) overrides.put("Brightness", Brightness)
             if (red != -1) overrides.put("red", red)
@@ -732,7 +752,6 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             if (white != -1) overrides.put("white", white)
             if (hue != -1) overrides.put("hue", hue)
 
-            val base = legacySendBase(hardwareDevice, effectId)
             val outgoing = buildLegacyPayload(
                 base,
                 effectId,
@@ -751,7 +770,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
      * Effect selection is a real user action. The settings screen itself only
      * edits controls; merely opening it must never transmit a command.
      */
-    private fun legacyEffectOverrides(effectId: Int): JSONObject {
+    private fun legacyEffectOverrides(effectId: Int, currentEffectBase: JSONObject? = null): JSONObject {
         val speedPrefs = getSharedPreferences("mobiled_legacy_effect_settings", MODE_PRIVATE)
         val params = getSharedPreferences("mobiled_legacy_effect_params_$effectId", MODE_PRIVATE)
         val defaultSpeed = when (effectId) {
@@ -800,6 +819,13 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
                     put("green", Color.green(rgb))
                     put("blue", Color.blue(rgb))
                     put("white", white)
+                }
+            }
+            if (effectId == 4 || effectId == 12) {
+                currentEffectBase?.let { current ->
+                    listOf("Brightness", "hue", "white").forEach { key ->
+                        if (current.has(key)) put(key, current.opt(key))
+                    }
                 }
             }
         }
@@ -885,19 +911,26 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             .firstOrNull { it >= 0 } ?: -1
     }
 
+    private fun isCurrentlyDiscoveryOnline(device: HardwareDevice): Boolean {
+        val apName = device.ApName?.trim().orEmpty()
+        if (apName.isEmpty() || device.ip.isNullOrBlank()) return false
+        return UdpClient.getClient(applicationContext).isDiscoveryOnline(apName)
+    }
+
     private fun captureControllerSelection(effect: Int): MutableList<GroupCommandTarget> {
         val items = group?.groupItems.orEmpty()
         val targets = items.mapNotNull { item ->
             val hardwareDevice = item.hardwareDevice ?: return@mapNotNull null
             val frame = discoveryFrame(hardwareDevice)
             val ip = hardwareDevice.ip?.trim().orEmpty()
-            if (!hardwareDevice.isOnline || ip.isEmpty() || !frame.has("Command")) return@mapNotNull null
+            if (!isCurrentlyDiscoveryOnline(hardwareDevice) || ip.isEmpty() || !frame.has("Command")) return@mapNotNull null
             GroupCommandTarget(item, ip, frame.toString())
         }.toMutableList()
 
         controllerSelectionSnapshot = targets
         controllerSelectionEffect = effect
         captureVirtualStripSnapshot()
+        captureMusicSelectionSnapshot()
         bindUI()
         return targets
     }
@@ -909,28 +942,51 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         }
 
         val configured = group!!.groupItems.orEmpty()
-            .filter { it.PixelID in 0..255 }
+            .filter { it.PixelID in 0..1279 }
             .sortedBy { it.PixelID }
 
-        val byPixel = configured.groupBy { it.PixelID }
-        val result = mutableListOf<GroupCommandTarget>()
-        var pixel = 0
-        while (true) {
-            val bucket = byPixel[pixel] ?: break
-            val online = bucket.mapNotNull { item ->
-                val d = item.hardwareDevice ?: return@mapNotNull null
-                if (!d.isOnline || d.ip.isNullOrBlank() || d.deviceFrame.isBlank()) return@mapNotNull null
-                GroupCommandTarget(item, d.ip!!.trim(), discoveryFrame(d).toString())
-            }
-            if (online.isEmpty()) break
-            result += online
-            pixel++
+        // Capture Discovery-online devices when the Controller group opens.
+        // Matrix and Music apply their consecutive PixelID prefix on this snapshot.
+        val result = configured.mapNotNull { item ->
+            val d = item.hardwareDevice ?: return@mapNotNull null
+            if (!isCurrentlyDiscoveryOnline(d) || d.ip.isNullOrBlank() || d.deviceFrame.isBlank()) return@mapNotNull null
+            GroupCommandTarget(item, d.ip!!.trim(), discoveryFrame(d).toString())
         }
-        controllerVirtualStripSnapshot = result
+        controllerVirtualStripSnapshot = result.toMutableList()
+    }
+
+    private fun captureMusicSelectionSnapshot() {
+        if (group == null) {
+            controllerMusicSnapshot = null
+            return
+        }
+
+        controllerMusicSnapshot = group!!.groupItems.orEmpty().mapNotNull { item ->
+            val d = item.hardwareDevice ?: return@mapNotNull null
+            val ip = d.ip?.trim().orEmpty()
+            if (!isCurrentlyDiscoveryOnline(d) || ip.isEmpty()) return@mapNotNull null
+            GroupCommandTarget(item, ip, discoveryFrame(d).toString())
+        }.toMutableList()
     }
 
     fun getControllerVirtualStripSnapshot(): List<HardwareGroupItem> =
         controllerVirtualStripSnapshot.orEmpty().map { it.item }
+
+    fun getControllerMusicSnapshot(): List<HardwareGroupItem> =
+        controllerMusicSnapshot.orEmpty().map { it.item }
+
+    fun getControllerMusicVirtualStripSnapshot(): List<HardwareGroupItem> {
+        val membersByPixelId = getControllerMusicSnapshot()
+            .filter { it.PixelID in 0..1023 }
+            .groupBy { it.PixelID }
+        val virtualStrip = ArrayList<HardwareGroupItem>()
+        for (pixelId in 0..1023) {
+            val members = membersByPixelId[pixelId].orEmpty()
+            if (members.isEmpty()) break
+            virtualStrip.addAll(members)
+        }
+        return virtualStrip
+    }
 
     fun getControllerSelectionSnapshot(): List<HardwareGroupItem> =
         controllerSelectionSnapshot.orEmpty().map { it.item }

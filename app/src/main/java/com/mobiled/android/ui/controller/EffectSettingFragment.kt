@@ -23,6 +23,7 @@ import com.google.android.material.slider.Slider.OnChangeListener
 import com.mobiled.android.adapters.GeneralUtil
 import com.mobiled.android.databinding.FragmentEffectSettingBinding
 import com.mobiled.android.model.Effect
+import kotlin.math.ln
 import kotlin.math.roundToInt
 import om.android.mobiled.comman.hide
 import om.android.mobiled.comman.show
@@ -616,6 +617,16 @@ class EffectSettingFragment : Fragment() {
         }
     }
 
+    private fun strobeSpeedForBpm(bpm: Double): Int {
+        val targetBpm = bpm.coerceIn(1.0, 1500.0)
+        val speed = if (targetBpm <= 200.0) {
+            1.0 + (targetBpm - 1.0) * 79.0 / 199.0
+        } else {
+            80.0 + 20.0 * ln(targetBpm / 200.0) / ln(1500.0 / 200.0)
+        }
+        return speed.roundToInt().coerceIn(1, 100)
+    }
+
     private fun registerTap() {
         val now = System.currentTimeMillis()
         if (tapTimes.isNotEmpty() && now - tapTimes.last() > 2000L) {
@@ -633,10 +644,17 @@ class EffectSettingFragment : Fragment() {
         val intervals = values.zipWithNext { a, b -> (b - a).toDouble() }
         val recent = intervals.takeLast(4)
         val avg = recent.average().coerceAtLeast(1.0)
-        val bpm = (60000.0 / avg).coerceIn(1.0, 200.0)
-        val speed = (1.0 + (bpm - 1.0) * 79.0 / 199.0).roundToInt().coerceIn(1, 80)
+        val bpm = 60000.0 / avg
+        // Strobe must flash twice for every user tap. Firmware Speed 1..80
+        // maps to 1..200 BPM; its 80..100 curve extends to 1500 BPM.
+        val effectBpm = (bpm * if (effect.gLight == 8) 2.0 else 1.0).coerceIn(1.0, 1500.0)
+        val speed = if (effect.gLight == 8) {
+            strobeSpeedForBpm(effectBpm)
+        } else {
+            (1.0 + (effectBpm - 1.0) * 79.0 / 199.0).roundToInt().coerceIn(1, 80)
+        }
         tapBpmView?.text = "BPM ${bpm.roundToInt()}"
-        startTapBeat(bpm)
+        startTapBeat(effectBpm)
         viewBinding.viewExtraPart.viewSlider.value = speed.toFloat()
         viewBinding.viewExtraSliderPreview.text = "${speed}%"
         saveLegacySpeed(speed)

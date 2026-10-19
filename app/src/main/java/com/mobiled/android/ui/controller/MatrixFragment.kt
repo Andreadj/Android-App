@@ -159,7 +159,9 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         preview.colors = colors.take(activeCount).map { it.copyOf() }
         preview.pixelCount = onlineMembers().size.coerceAtLeast(1)
         preview.startAnimation()
-        if (shouldSelect) send()
+        // The PC App sends the configuration whenever an effect is selected,
+        // including reselecting the current effect to refresh its group context.
+        send(forceParameterUpdate = true, effectSelection = true)
     }
 
     private fun buildEffectCards() {
@@ -292,6 +294,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         if (spec.speed || spec.brightness || spec.random) {
             val main = sectionBox("Main controls")
             if (spec.speed) addStepSlider(main, "Speed", speed.progress, 0, 100, "") { speed.progress = it; speedValue.text = "Speed $it"; send() }
+            if (spec.id == 101 || spec.id == 105) addTapSync(main, spec.id)
             if (spec.brightness) addStepSlider(main, "Brightness", brightness.progress, 0, 255, "") { brightness.progress = it; brightnessValue.text = "Brightness $it"; send() }
             panel.addView(main, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 12 })
         }
@@ -330,6 +333,56 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     }
 
     private fun aPixelCount(): Int = onlineMembers().size.coerceAtLeast(1)
+
+    private fun addTapSync(container: LinearLayout, matrixEffectId: Int) {
+        val tapTimes = ArrayList<Long>()
+        val button = Button(requireContext()).apply {
+            text = "Tap Sync"
+            isAllCaps = false
+        }
+        val bpmLabel = TextView(requireContext()).apply {
+            text = "BPM —"
+            textSize = 13f
+            setTextColor(Color.LTGRAY)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(button, LinearLayout.LayoutParams(-2, dp(44)))
+            addView(bpmLabel, LinearLayout.LayoutParams(-2, dp(44)).apply { leftMargin = dp(12) })
+        }
+        container.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(2)
+            bottomMargin = dp(6)
+        })
+
+        button.setOnClickListener {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (tapTimes.isNotEmpty() && now - tapTimes.last() > 2000L) tapTimes.clear()
+            tapTimes.add(now)
+            if (tapTimes.size > 5) tapTimes.removeAt(0)
+            button.alpha = 0.55f
+            button.postDelayed({ button.alpha = 1f }, 120L)
+            if (tapTimes.size < 2) return@setOnClickListener
+
+            val intervals = tapTimes.zipWithNext { first, second -> second - first }.takeLast(4)
+            val averageInterval = intervals.average()
+            if (averageInterval <= 0.0) return@setOnClickListener
+            val bpm = (60000.0 / averageInterval).coerceIn(1.0, 200.0)
+            val beatMs = 60000.0 / bpm
+            val syncedSpeed = when (matrixEffectId) {
+                101 -> ((900.0 - beatMs) / 7.0).roundToInt()
+                105 -> ((650.0 - beatMs) / 6.1).roundToInt()
+                else -> return@setOnClickListener
+            }.coerceIn(0, 100)
+
+            bpmLabel.text = "BPM \${bpm.roundToInt()}"
+            speed.progress = syncedSpeed
+            speedValue.text = "Speed $syncedSpeed"
+            send()
+        }
+    }
 
     private fun addStepSlider(container: LinearLayout, label: String, value: Int, minValue: Int, maxValue: Int, suffix: String, onChange: (Int) -> Unit) {
         val labelRow=LinearLayout(requireContext()).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
@@ -706,17 +759,31 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
 
     private fun onlineMembers(): List<HardwareGroupItem> {
         val a = requireActivity() as ControllerActivity
-        return a.getControllerVirtualStripSnapshot().sortedBy { it.PixelID }
+        val membersByPixelId = a.getControllerVirtualStripSnapshot()
+            .filter { it.PixelID in 0..255 }
+            .groupBy { it.PixelID }
+        val online = ArrayList<HardwareGroupItem>()
+        for (pixelId in 0..255) {
+            val bucket = membersByPixelId[pixelId].orEmpty()
+            if (bucket.isEmpty()) break
+            // Multiple MobileD may share a PixelID. Keep every online device
+            // at that position, matching the PC App's virtual strip snapshot.
+            online.addAll(bucket)
+        }
+        return online
     }
 
-    private fun pixelId(item: HardwareGroupItem): Int = item.PixelID.coerceIn(0, 255)
+    private fun pixelId(item: HardwareGroupItem): Int = item.PixelID
 
     private fun matrixBaseUniverse(items: List<HardwareGroupItem>): Int? {
         val group = (requireActivity() as ControllerActivity).group ?: return null
         return group.GUniverse.takeIf { if (group.allDevices) it == 32000 else it in 32010..35000 }
     }
 
-    private fun send(forceParameterUpdate: Boolean = false) {
+    private fun send(
+        forceParameterUpdate: Boolean = false,
+        effectSelection: Boolean = false
+    ) {
         if (::speed.isInitialized && ::brightness.isInitialized) saveRuntimeConfig()
         val a = requireActivity() as ControllerActivity
         if (!a.canOpenDistributedEffects("Matrix")) return
@@ -730,8 +797,11 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             return
         }
 
-        val allGroupItems = group.groupItems.orEmpty()
-        val ids = allGroupItems.map { pixelId(it) }.sorted()
+        // Only devices reachable in the controller selection snapshot take
+        // part in routing validation and this command burst. Offline inventory
+        // rows remain stored but cannot block an active All Devices group.
+        val allGroupItems = items
+        val ids = allGroupItems.map { pixelId(it) }.distinct().sorted()
         val masters = allGroupItems.filter { it.GState.equals("M", ignoreCase = true) }
         if (masters.size != 1) {
             Toast.makeText(requireContext(), "Matrix requires exactly one Master.", Toast.LENGTH_LONG).show()
@@ -753,25 +823,42 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             Toast.makeText(requireContext(), "Invalid Matrix GUniverse for this group (All Devices: 32000; other groups: 32010-35000).", Toast.LENGTH_LONG).show()
             return
         }
+        val gPort = if (group.allDevices) 8890 else allGroupItems.firstOrNull()
+            ?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 }
+        if (gPort == null) {
+            Toast.makeText(requireContext(), "Invalid Matrix GPort for this group.", Toast.LENGTH_LONG).show()
+            return
+        }
 
         val spec = specs.first { it.id == effectId }
         val colorCount = if (spec.colors > 0)
             (0 until spec.colors.coerceAtMost(10)).takeWhile { colorSaved[it] }.size
         else 1
-        val pixelCount = items.size
+        val pixelCount = items.map { pixelId(it) }.distinct().size
 
-        // Effect selection is a group configuration change and reaches every
-        // operational member. Parameter changes after the group is already on
-        // this Matrix effect go only to the Master.
-        val effectChanged = items.any { item ->
-            val d = item.hardwareDevice ?: return@any true
-            JSONObject(d.deviceFrame.ifBlank { "{}" }).optInt("GLights", -1) != effectId
+        // Route parameter-only updates to the Master only when every online
+        // member's latest Discovery confirms this effect and its full group
+        // addressing. A user selection always configures the whole group.
+        val sameMatrixAddressing = items.all { item ->
+            val d = item.hardwareDevice ?: return@all false
+            val discovery = runCatching { JSONObject(d.deviceFrame.ifBlank { "{}" }) }.getOrNull()
+                ?: return@all false
+            if (!discovery.has("Command")) return@all false
+            val role = if (item.GState.equals("M", ignoreCase = true)) "M" else "S"
+            discovery.optInt("GLights", -1) == effectId &&
+                discovery.optString("GState", "X").equals(role, ignoreCase = true) &&
+                discovery.optInt("GPort", -1) == gPort &&
+                discovery.optInt("GUniverse", -1) == universe &&
+                discovery.optInt("PixelID", -1) == pixelId(item) &&
+                discovery.optInt("PixelCount", -1) == pixelCount
         }
-        val masterOnly = effectSelected && !effectChanged
+        val masterOnly = !effectSelection && sameMatrixAddressing
+
 
         items.forEach { item ->
             val d = item.hardwareDevice ?: return@forEach
-            val discovery = JSONObject(d.deviceFrame)
+            val discovery = JSONObject(d.deviceFrame.ifBlank { "{}" })
+            if (!discovery.has("Command")) return@forEach
             val role = if (item.GState.equals("M", ignoreCase = true)) "M" else "S"
             val payload = JSONObject().apply {
                 put("Command", discovery.optInt("Command", 0))
@@ -779,7 +866,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
                 put("Speed", speed.progress.coerceIn(0, 100))
                 put("Brightness", brightness.progress.coerceIn(0, 255))
                 put("GState", role)
-                put("GPort", if (group.allDevices) "8890" else item.Gport)
+                put("GPort", gPort)
                 put("GUniverse", universe)
                 put("PixelID", pixelId(item))
                 put("PixelCount", pixelCount)

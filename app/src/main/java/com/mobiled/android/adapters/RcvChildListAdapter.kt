@@ -637,7 +637,12 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
             // method again when a device changes state.
             // Device membership is persistent. Offline devices must remain visible;
             // only their connection/state presentation changes.
-            val visibleItems = hardwareGroup.groupItems.orEmpty()
+            val visibleItems = hardwareGroup.groupItems.orEmpty().sortedWith(
+                compareBy<HardwareGroupItem>(
+                    { it.hardwareDevice?.devName.orEmpty().trim().lowercase(java.util.Locale.ROOT) },
+                    { it.hardwareDevice?.devName.orEmpty().trim() }
+                )
+            )
             val deviceNames = visibleItems.joinToString(",") { it.hardwareDevice?.devName.orEmpty() }
             val spannable = SpannableString(deviceNames)
 

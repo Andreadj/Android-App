@@ -66,12 +66,11 @@ object AppSettingsManager {
             val groupId = if (group.allDevices) "all-devices" else "android-${group.rowId ?: index}"
             val gPort = if (group.allDevices) 8890 else items.firstOrNull()?.Gport?.toIntOrNull() ?: 10000 + index
             val gUniverse = if (group.allDevices) 32000 else
-                group.GUniverse.takeIf { it in 32010..35000 } ?: items.asSequence()
-                    .mapNotNull { item ->
-                        val raw = item.hardwareDevice?.deviceFrame.orEmpty()
-                        if (raw.isBlank()) null else runCatching { JSONObject(raw).optInt("GUniverse", 32000) }.getOrNull()
-                    }
-                    .firstOrNull { it in 32010..35000 } ?: 32010
+                group.GUniverse.takeIf { it in 32010..35000 }
+                    ?: throw IllegalStateException(
+                        "Cannot export group '${group.groupTitle}': its GUniverse base is missing or invalid. " +
+                            "Repair the group reservation before exporting; no fallback universe is assigned silently."
+                    )
 
             groupArray.put(JSONObject().apply {
                 put("id", groupId)

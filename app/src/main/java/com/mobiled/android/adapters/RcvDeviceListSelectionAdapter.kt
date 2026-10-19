@@ -16,6 +16,8 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
     private var sourceItems: List<HardwareGroupItem> = emptyList()
     private var singleItemSelection = false
     private var showPixelId = false
+    private var membershipEditable = true
+    private var identifyOnPixelIdSelection = false
     private var currentViewHolder: ViewHolder? = null
 
     class ViewHolder(val viewBinding: ItemDeviceSelectionBinding) : RecyclerView.ViewHolder(viewBinding.root) {
@@ -30,7 +32,8 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
         val item = itemList[holder.bindingAdapterPosition]
         holder.viewBinding.textDeviceName.text = item.hardwareDevice?.devName ?: "N/A"
         holder.viewBinding.selectionView.setOnCheckedChangeListener(null)
-        holder.viewBinding.selectionView.isChecked = item.selected
+        holder.viewBinding.selectionView.isEnabled = membershipEditable
+        holder.viewBinding.selectionView.isChecked = if (membershipEditable) item.selected else true
         holder.viewBinding.pixelIdEdit.visibility = if (showPixelId) View.VISIBLE else View.GONE
 
         holder.pixelWatcher?.let { holder.viewBinding.pixelIdEdit.removeTextChangedListener(it) }
@@ -47,30 +50,33 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
             }
             holder.pixelWatcher = watcher
             holder.viewBinding.pixelIdEdit.addTextChangedListener(watcher)
-            holder.viewBinding.pixelIdEdit.setOnFocusChangeListener { _, hasFocus -> if (!hasFocus) commitPixelId(holder, item) }
+            holder.viewBinding.pixelIdEdit.setOnClickListener {
+                if (identifyOnPixelIdSelection) sendIdentificationCommand(item, holder.itemView)
+            }
+            holder.viewBinding.pixelIdEdit.setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) commitPixelId(holder, item)
+            }
             holder.viewBinding.pixelIdEdit.setOnEditorActionListener { _, _, _ -> commitPixelId(holder, item); true }
         } else {
+            holder.viewBinding.pixelIdEdit.setOnClickListener(null)
             holder.viewBinding.pixelIdEdit.setOnFocusChangeListener(null)
             holder.viewBinding.pixelIdEdit.setOnEditorActionListener(null)
         }
 
         if (singleItemSelection && item.selected) currentViewHolder = holder
         holder.viewBinding.selectionView.setOnCheckedChangeListener { _, checked ->
+            if (!membershipEditable) {
+                item.selected = true
+                holder.viewBinding.selectionView.isChecked = true
+                return@setOnCheckedChangeListener
+            }
             item.selected = checked
 
-            // PC App parity: selecting a MobileD in the group membership
-            // editor immediately identifies the physical unit with a single
-            // Command=2 packet. This is deliberately limited to the group
-            // membership screen (showPixelId=true); the Master/Slave picker
-            // reuses this adapter but must not trigger a flash.
+            // Selecting a member in an editable group identifies it with one
+            // FLASH packet. All Devices instead identifies a unit when its
+            // PixelID field is selected; its membership cannot be changed.
             if (checked && showPixelId && !singleItemSelection) {
-                val device = item.hardwareDevice
-                val ip = device?.ip?.trim().orEmpty()
-                val apName = device?.ApName?.trim().orEmpty()
-                val udpClient = UdpClient.getClient(holder.itemView.context)
-                if (ip.isNotEmpty() && udpClient.isDiscoveryOnline(apName)) {
-                    udpClient.writeString("{\"Command\":2}", ip, 8889)
-                }
+                sendIdentificationCommand(item, holder.itemView)
             }
             if (singleItemSelection && checked) {
                 val old = currentViewHolder
@@ -86,6 +92,16 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
         }
     }
 
+    private fun sendIdentificationCommand(item: HardwareGroupItem, source: View) {
+        val device = item.hardwareDevice ?: return
+        val ip = device.ip?.trim().orEmpty()
+        val apName = device.ApName?.trim().orEmpty()
+        val udpClient = UdpClient.getClient(source.context)
+        if (ip.isNotEmpty() && udpClient.isDiscoveryOnline(apName)) {
+            udpClient.writeString("{\"Command\":2}", ip, 8889)
+        }
+    }
+
     private fun commitPixelId(holder: ViewHolder, item: HardwareGroupItem) {
         item.PixelID = (holder.viewBinding.pixelIdEdit.text.toString().toIntOrNull() ?: item.PixelID).coerceIn(0, 1023)
         if (holder.viewBinding.pixelIdEdit.text.toString() != item.PixelID.toString()) {
@@ -93,7 +109,13 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
         }
     }
 
-    fun setItems(items: List<HardwareGroupItem>, singleItemSelection: Boolean = false, showPixelId: Boolean = false) {
+    fun setItems(
+        items: List<HardwareGroupItem>,
+        singleItemSelection: Boolean = false,
+        showPixelId: Boolean = false,
+        membershipEditable: Boolean = true,
+        identifyOnPixelIdSelection: Boolean = false
+    ) {
         // Sort visible rows by Device Name (DevName), never by APName.
         // Preserve source ordering for selected results.
         sourceItems = ArrayList(items)
@@ -105,6 +127,8 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
         )
         this.singleItemSelection = singleItemSelection
         this.showPixelId = showPixelId
+        this.membershipEditable = membershipEditable
+        this.identifyOnPixelIdSelection = identifyOnPixelIdSelection
         currentViewHolder = null
         notifyDataSetChanged()
     }
