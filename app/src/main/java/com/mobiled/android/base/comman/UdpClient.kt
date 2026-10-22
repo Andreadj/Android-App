@@ -50,6 +50,7 @@ class UdpClient(private var context: Context) {
     // ICMP/ping.
     private val discoveryLastSeen = ConcurrentHashMap<String, Long>()
     private val discoveryOnline = ConcurrentHashMap<String, Boolean>()
+    private val discoveryRoutes = DiscoveryCommandRoutes()
     private val discoveryStateListeners =
         ConcurrentHashMap<String, ArrayList<DiscoveryStateListener>>()
     private val discoveryWatchExecutor = ScheduledThreadPoolExecutor(1)
@@ -239,6 +240,11 @@ class UdpClient(private var context: Context) {
             System.currentTimeMillis() - lastSeen <= 3500L
     }
 
+    fun currentDiscoveryIp(deviceName: String): String? =
+        deviceName.trim().takeIf { isDiscoveryOnline(it) }?.let { discoveryRoutes.currentAddress(it) }
+
+    fun readLatestDiscoveryFrame(deviceName: String): String? = discoveryRoutes.lastFrame(deviceName)
+
     fun listenDiscoveryState(deviceName: String, listener: DiscoveryStateListener) {
         synchronized(this) {
             discoveryStateListeners.getOrPut(deviceName.trim()) { arrayListOf() }.add(listener)
@@ -340,7 +346,8 @@ class UdpClient(private var context: Context) {
                     var json = JSONObject(_data)
                     if (json.has("APName")) {
                         val apName = json.getString("APName").trim()
-                        if (apName.isNotEmpty()) {
+                        val currentIp = json.optString("IP", "").trim()
+                        if (discoveryRoutes.accept(apName, currentIp, json.toString())) {
                             discoveryLastSeen[apName] = System.currentTimeMillis()
                             val wasOnline = discoveryOnline[apName] == true
                             discoveryOnline[apName] = true
@@ -487,41 +494,52 @@ class UdpClient(private var context: Context) {
         value: String,
         ipAddress: String,
         writeCallback: WriteCallback = object : WriteCallback {
-            override fun onOperationDone(result: Boolean) {
-                // Handle operation done
-            }
+            override fun onOperationDone(result: Boolean) {}
         }
+    ) = writeDeviceCommand(value, ipAddress, writeCallback, reliable = true)
+
+    fun writeRealtimeCommandString(value: String, ipAddress: String) =
+        writeDeviceCommand(value, ipAddress, object : WriteCallback {
+            override fun onOperationDone(result: Boolean) {}
+        }, reliable = false)
+
+    @Synchronized
+    private fun writeDeviceCommand(
+        value: String,
+        ipAddress: String,
+        writeCallback: WriteCallback,
+        reliable: Boolean
     ) {
-        val key = ipAddress.trim()
-        if (key.isEmpty()) return
+        val payloadIdentity = runCatching { JSONObject(value).optString("APName", "").trim() }.getOrDefault("")
+        val key = payloadIdentity.takeIf { it.isNotEmpty() }
+            ?: discoveryRoutes.identityForAddress(ipAddress)
+        if (key == null || currentDiscoveryIp(key) == null) {
+            writeCallback.onOperationDone(false)
+            return
+        }
 
         val previous = commandTrailing[key]
         previous?.first?.cancel(false)
         previous?.second?.cancel(false)
         previous?.third?.cancel(false)
-
-        val generation = (previous?.generation ?: 0L) + 1L
-        val state = CommandTrailingState(generation)
+        val state = CommandTrailingState((previous?.generation ?: 0L) + 1L)
         commandTrailing[key] = state
+        val bytes = value.toByteArray(Charsets.UTF_8)
 
-        writeString(value, key, 8889, writeCallback)
+        fun transmit(callback: WriteCallback = object : WriteCallback {
+            override fun onOperationDone(result: Boolean) {}
+        }) {
+            writeBytes(bytes, ipAddress, 8889, callback,
+                resolveAddress = { currentDiscoveryIp(key) },
+                isCurrent = { commandTrailing[key] === state })
+        }
 
-        val bytes = value.toByteArray()
-        state.first = commandTrailingExecutor.schedule({
-            if (commandTrailing[key]?.generation != generation) return@schedule
-            writeBytes(bytes, key, 8889)
-        }, 50, TimeUnit.MILLISECONDS)
-
-        state.second = commandTrailingExecutor.schedule({
-            if (commandTrailing[key]?.generation != generation) return@schedule
-            writeBytes(bytes, key, 8889)
-        }, 65, TimeUnit.MILLISECONDS)
-
-        state.third = commandTrailingExecutor.schedule({
-            if (commandTrailing[key]?.generation != generation) return@schedule
-            writeBytes(bytes, key, 8889)
-            commandTrailing.remove(key, state)
-        }, 80, TimeUnit.MILLISECONDS)
+        transmit(writeCallback)
+        if (!reliable) return
+        state.first = commandTrailingExecutor.schedule({ transmit() }, 50, TimeUnit.MILLISECONDS)
+        state.second = commandTrailingExecutor.schedule({ transmit() }, 65, TimeUnit.MILLISECONDS)
+        state.third = commandTrailingExecutor.schedule({ transmit() }, 80, TimeUnit.MILLISECONDS)
+        // Keep the latest generation: queued sends must still reject superseded commands.
     }
 
     private fun writeBytes(
@@ -529,45 +547,42 @@ class UdpClient(private var context: Context) {
         bcAddress: String,
         port: Int = 8889,
         writeCallback: WriteCallback = object : WriteCallback {
-            override fun onOperationDone(result: Boolean) {
-                // Handle operation done
-            }
-        }
+            override fun onOperationDone(result: Boolean) {}
+        },
+        resolveAddress: (() -> String?)? = null,
+        isCurrent: (() -> Boolean)? = null
     ) {
         val callableFeature = CompletableFuture.supplyAsync({
-            val deviceIp = InetAddress.getByName(bcAddress)
-            if (AppConfiguration.UDP_SIMULATE_DEVICES) {
-                val jsonObject = simulationDevicePayloads.get(bcAddress)
-                val commandJson = JSONObject(String(bytes))
-                commandJson.keys().forEach {
-                    if (jsonObject?.has(it) == true) jsonObject?.put(it, commandJson.get(it))
-                }
-                true
-            } else {
-                logMessage(
-                    "UdpClientSend",
-                    "App >> Hardware Thread ${Thread.currentThread().id} called with: bytes = ${
-                        String(bytes)
-                    }, ipAddress = $bcAddress, port = $port"
-                )
-                DatagramSocket().use { bcSock ->
-                    bcSock.broadcast = true
-                    try {
-                        val dp =
-                            DatagramPacket(bytes, bytes.size, InetAddress.getByName(bcAddress), port)
-                        bcSock.send(dp)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+            try {
+                if (isCurrent?.invoke() == false) return@supplyAsync false
+                val destination = if (resolveAddress == null) bcAddress else
+                    resolveAddress.invoke() ?: return@supplyAsync false
+                if (AppConfiguration.UDP_SIMULATE_DEVICES) {
+                    val jsonObject = simulationDevicePayloads[destination]
+                    val commandJson = JSONObject(String(bytes, Charsets.UTF_8))
+                    commandJson.keys().forEach {
+                        if (jsonObject?.has(it) == true) jsonObject.put(it, commandJson.get(it))
                     }
+                    jsonObject != null
+                } else {
+                    DatagramSocket().use { socket ->
+                        socket.broadcast = true
+                        // Check again immediately before the physical send, after socket setup.
+                        if (isCurrent?.invoke() == false) return@supplyAsync false
+                        val currentDestination = if (resolveAddress == null) destination else
+                            resolveAddress.invoke() ?: return@supplyAsync false
+                        val packet = DatagramPacket(bytes, bytes.size,
+                            InetAddress.getByName(currentDestination), port)
+                        socket.send(packet)
+                    }
+                    true
                 }
-                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
             }
-
         }, sendExecutor)
-
-        callableFeature.thenAccept {
-            writeCallback.onOperationDone(it)
-        }
+        callableFeature.thenAccept { writeCallback.onOperationDone(it) }
     }
 
     private fun isDeviceActive(deviceIp: InetAddress): Boolean {

@@ -8,6 +8,7 @@ import android.location.LocationManager
 import android.net.NetworkInfo
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import androidx.core.content.ContextCompat
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -45,9 +46,12 @@ class AddDeviceActivity : com.mobiled.android.base.BaseActivity<ActivityAddDevic
 
 
         try {
-            registerReceiver(gpsSwitchStateReceiver, IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION))
-            registerReceiver(gpsSwitchStateReceiver, IntentFilter(Intent.ACTION_PROVIDER_CHANGED))
-            registerReceiver(gpsSwitchStateReceiver, IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION))
+            ContextCompat.registerReceiver(this, gpsSwitchStateReceiver,
+                IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(this, gpsSwitchStateReceiver,
+                IntentFilter(Intent.ACTION_PROVIDER_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(this, gpsSwitchStateReceiver,
+                IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
         } catch (e: Exception) {
         }
     }

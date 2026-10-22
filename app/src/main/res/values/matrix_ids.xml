@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="id" name="matrix_root" />
+    <item type="id" name="matrix_title" />
+    <item type="id" name="matrix_effect_list" />
+    <item type="id" name="matrix_preview" />
+    <item type="id" name="matrix_back" />
+    <item type="id" name="matrix_controls" />
+    <item type="id" name="matrix_status" />
+    <item type="id" name="matrix_palette" />
+</resources>

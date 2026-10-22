@@ -1,92 +1,51 @@
-# AndreaC
+# MobileD Android
 
+App Android nativa per controllo Color, Legacy, Matrix e Music dei dispositivi MobileD. Il progetto si può modificare e compilare da terminale; Android Studio è facoltativo.
 
+Versione corrente verificata: **2.0.11**, versionCode **24**. Aggiorna About con due schede prodotto, MobileD 20 W e MobileD XL 40 W, e mostra la versione App automaticamente da `BuildConfig.VERSION_NAME`. Le specifiche distinte comprendono batterie, ricarica, dimensioni e peso; i dati provengono dal manuale inglese 2026 fornito.
 
-## Getting started
+La build release 2.0.11 è riuscita in 7 minuti e 41 secondi; 26 test JVM sono passati senza failure/error/skip e il lint finale non riporta errori/fatal. Il pacchetto ha superato la verifica dei 30 file consegnati, della firma e dell'asset About corrispondente ai sorgenti, con modelli 20/40 W e versione automatica.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+L'installazione sul telefono è riuscita e l'avvio a freddo COLD ha restituito Status OK in 993 ms. Sono verificati versione 2.0.11, versionCode 24 e lastUpdateTime del 22 ottobre 2026 alle 14:45:54, ora Europe/Rome. I dettagli sono in `dist/build-verification.json`. La prova visiva della schermata About resta in attesa dell'apertura manuale: il dispositivo ha rifiutato i tap ADB; nessuna impostazione di sicurezza è stata modificata.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Il riferimento corrente è [MobileD_MobileApps_Functional_Reference_v1.8.md](MobileD_MobileApps_Functional_Reference_v1.8.md), disponibile anche in PDF. Versioni storiche e checkpoint mobile precedenti sono conservati in `docs/archive`.
 
-## Add your files
+## Build locale
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+La configurazione usa Gradle wrapper 8.13, Android Gradle Plugin 8.13.2, Kotlin 2.0.0 e Android SDK 34. minSdk è 26; la cattura playback Music richiede Android 10/API 29 o successivo, consenso MediaProjection e una sorgente che consenta la cattura.
 
+Nel terminale PowerShell aperto nella cartella del progetto, usare un JDK 21 installato. Per l'ambiente locale corrente:
+
+```powershell
+$env:JAVA_HOME = 'C:\Users\andre\.jdks\jbr-21.0.11'
+$env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
+.\gradlew.bat --offline --console=plain :app:testDebugUnitTest :app:assembleDebug
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/Keshandroid/andreac.git
-git branch -M main
-git push -uf origin main
-```
 
-## Integrate with your tools
+`local.properties` deve indicare l'SDK locale; nell'ambiente corrente si trova in `C:\Users\andre\AppData\Local\Android\Sdk`. La modalità `--offline` richiede che dipendenze e wrapper siano già nella cache. Per la release usare `:app:assembleRelease` con la configurazione di firma locale prevista dal progetto. Le credenziali restano nei file locali e non devono comparire nei report o negli archivi distribuibili.
 
-- [ ] [Set up project integrations](https://gitlab.com/Keshandroid/andreac/-/settings/integrations)
+La verifica completa della consegna esegue `:app:testDebugUnitTest :app:assembleRelease :app:lintDebug`. Dopo una build finale riuscita, con lo snapshot dei sorgenti e il log registrati in `build/reports/alignment`, il comando `python .\scripts\package-android-release.py` verifica e prepara la cartella `dist`. Lo script controlla i test JVM attesi per Music e routing, l'assenza di errori/fatal nel lint finale, metadati della release, firma tramite apksigner SDK 34, permessi audio, servizio di cattura e risorse icona; arresta il confezionamento se una verifica fallisce. Non compila e non installa l'APK.
 
-## Collaborate with your team
+Gli APK prodotti da Gradle si trovano in `app/build/outputs/apk/debug` e `app/build/outputs/apk/release`. L'applicationId è `com.mobiled.android.test`; una build non comporta l'installazione automatica su telefono.
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+## Consegna e verifica
 
-## Test and Deploy
+- `dist`: APK e report della consegna Android.
+- `dist/docs`: riferimento corrente Markdown/PDF.
+- `dist/build-verification.json`: versioni, artefatti ed esiti registrati della consegna.
+- `build/reports/alignment/final-build.log`: log della verifica di build corrente.
+- `app/build/reports/tests/testDebugUnitTest`: report dei test JVM.
+- `docs/archive`: documenti precedenti, conservati per confronto.
+- `.maintenance/2026-10-22/source-backup`: copie dei sorgenti anteriori alle correzioni della sessione.
 
-Use the built-in continuous integration in GitLab.
+La presenza di istruzioni di build non certifica che siano state eseguite: verificare il report della consegna. I test su telefono, cattura audio reale e DMX elettrico restano distinti dai test JVM e dalla compilazione. Il riferimento v1.8 contiene le prove funzionali da eseguire sui dispositivi.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+I comandi JSON usano UDP 8889; Discovery usa UDP 8232; gli universi degli effetti usano sACN/E1.31 multicast UDP 5568. GPort è un identificatore di gruppo, non una porta di destinazione. L'App mobile non aggiunge in questa revisione un aggiornamento firmware nativo; combined e OTA restano nei progetti firmware.
 
-***
+Il Master viene salvato come unico M anche quando altri membri sono offline; le identificazioni seguono l'IP Discovery corrente. La navigazione Indietro e i callback di autorizzazione Music rispettano il ciclo del controller e la disponibilità delle API Android. Le prove di cattura e DMX su dispositivi restano elencate nel riferimento funzionale.
 
-# Editing this README
+Tap Sync degli effetti Matrix 101 e 105 usa il pulsante con LED nello stile PC e aggiorna BPM, slider e valore Speed visibili. Il flash dura 120 ms al tocco; non è un metronomo automatico. Sono passati 4 test Tap Tempo, 15 Music, 6 routing e 1 test esistente, per 26 test JVM complessivi della 2.0.11.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+APK: `dist/MobileD_Android_2.0.11.apk`; SHA-256 `6205f485fdaa104541bcac06e771bf9e444cf8f0c8ed7d985ee648232587ee57`. Lo snapshot contiene 320 file con impronta `e15436cad4ccffcb31511b016653d9448652efc0c0d3e95ffcef55b19746955b`, corrispondenti agli input della build.
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+About è verificata nell'asset confezionato; restano da verificare la sua resa visiva sul telefono, Tap Sync fisico, cattura audio reale e comportamento UDP/DMX dei fari. Installazione e avvio non sostituiscono queste prove funzionali.

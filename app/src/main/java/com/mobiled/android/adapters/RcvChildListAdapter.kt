@@ -21,6 +21,7 @@ import com.mobiled.android.base.model.HardwareDevice
 import com.mobiled.android.base.model.HardwareGroup
 import com.mobiled.android.base.model.HardwareGroupItem
 import com.mobiled.android.base.model.LightCommand
+import com.mobiled.android.base.model.PowerCommandPayload
 import com.mobiled.android.databinding.ListItemBinding
 import org.json.JSONException
 import org.json.JSONObject
@@ -546,39 +547,8 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
             }
         }
 
-        private fun buildPowerPayload(discovery: JSONObject, command: Int): String {
-            val glights = discovery.optInt("GLights", -1)
-            val payload = JSONObject()
-            fun copy(key: String) {
-                if (discovery.has(key)) payload.put(key, discovery.opt(key))
-            }
-            copy("Command")
-            copy("GLights")
-            when {
-                glights == 0 -> {
-                    copy("Brightness"); copy("Hue")
-                    copy("red"); copy("green"); copy("blue"); copy("white")
-                }
-                glights in 1..99 -> {
-                    copy("Speed"); copy("Brightness"); copy("GState"); copy("GPort")
-                }
-                glights == 100 -> {
-                    copy("GPort"); copy("GUniverse"); copy("PixelID"); copy("PixelCount")
-                }
-                glights in 101..199 -> {
-                    copy("Speed"); copy("Brightness"); copy("GState"); copy("GPort")
-                    copy("GUniverse"); copy("PixelID"); copy("PixelCount")
-                    copy("ColorCount"); copy("Random"); copy("Custom1"); copy("Custom2")
-                    copy("Custom3"); copy("OnOff1"); copy("OnOff2"); copy("Colors")
-                }
-                else -> {
-                    val keys = discovery.keys()
-                    while (keys.hasNext()) copy(keys.next())
-                }
-            }
-            payload.put("Command", command)
-            return payload.toString()
-        }
+        private fun buildPowerPayload(discovery: JSONObject, command: Int): String =
+            PowerCommandPayload.build(discovery, command)
 
         private fun writeRawCommand(
             payload: String,
@@ -615,7 +585,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
 
                     val lightCommand = LightCommand().apply { fromJson(jsonObject) }
                     lightCommand.Command =
-                        if (command == -1) lightCommand.Command xor 1 else command
+                        if (command == -1) { if (lightCommand.Command == 1) 0 else 1 } else command
                     val payload = buildPowerPayload(jsonObject, lightCommand.Command)
 
                     if (payload != sourceFrame) {
@@ -699,7 +669,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
                     // Discovery frame is the source of truth; preserve all
                     // other fields exactly as received.
                     lightCommand.Command =
-                        if (command == -1) lightCommand.Command xor 1 else command
+                        if (command == -1) { if (lightCommand.Command == 1) 0 else 1 } else command
                     val payload = buildPowerPayload(jsonObject, lightCommand.Command)
 
                     if (payload != sourceFrame) {

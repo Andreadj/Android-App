@@ -1,18 +1,12 @@
 package com.mobiled.android.ui.controller
 
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import com.mobiled.android.LogSystem
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.Gravity
-import android.widget.Button
-import android.widget.LinearLayout
 import android.widget.TextView
-import android.os.Handler
-import android.os.Looper
 import androidx.fragment.app.Fragment
 import codes.side.andcolorpicker.converter.toColorInt
 import codes.side.andcolorpicker.hsl.HSLColorPickerSeekBar
@@ -23,7 +17,6 @@ import com.google.android.material.slider.Slider.OnChangeListener
 import com.mobiled.android.adapters.GeneralUtil
 import com.mobiled.android.databinding.FragmentEffectSettingBinding
 import com.mobiled.android.model.Effect
-import kotlin.math.ln
 import kotlin.math.roundToInt
 import om.android.mobiled.comman.hide
 import om.android.mobiled.comman.show
@@ -41,12 +34,6 @@ class EffectSettingFragment : Fragment() {
         it[0] = 360F
     }
 
-    private val tapHandler = Handler(Looper.getMainLooper())
-    private val tapTimes = ArrayDeque<Long>()
-    private var tapBeatRunnable: Runnable? = null
-    private var tapLedOffRunnable: Runnable? = null
-    private var tapLedView: View? = null
-    private var tapBpmView: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -462,7 +449,6 @@ class EffectSettingFragment : Fragment() {
                 if (effect.gLight == 4 || effect.gLight == 8 || effect.gLight == 12) {
                     viewBinding.viewExtraPart.viewSlider.valueFrom = 1F
                     viewBinding.viewExtraPart.viewSlider.valueTo = 100F
-                    addTapSyncControls()
                 }
             } else if (effect.isFrequency) {
                 ExtraPartSliderListener = object : OnChangeListener {
@@ -553,142 +539,7 @@ class EffectSettingFragment : Fragment() {
         parent.addView(rgb, (hueIndex + 1).coerceAtMost(parent.childCount))
     }
 
-    private fun addTapSyncControls() {
-        val parent = viewBinding.viewExtraSettings as? ViewGroup ?: return
-        if (parent.findViewWithTag<View>("mobiled_tap_sync") != null) return
 
-        val column = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-            tag = "mobiled_tap_sync"
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dpTap(8), 0, 0)
-        }
-
-        val button = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            minimumHeight = dpTap(34)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dpTap(5).toFloat()
-                setColor(Color.rgb(32, 32, 32))
-                setStroke(dpTap(1), Color.rgb(85, 85, 85))
-            }
-            setPadding(dpTap(14), 0, dpTap(14), 0)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { registerTap() }
-        }
-
-        tapLedView = View(requireContext()).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.rgb(85, 85, 85))
-            }
-        }
-        button.addView(tapLedView, LinearLayout.LayoutParams(dpTap(8), dpTap(8)).apply { rightMargin = dpTap(8) })
-        button.addView(TextView(requireContext()).apply {
-            text = "Tap Sync"
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        tapBpmView = TextView(requireContext()).apply {
-            text = "BPM —"
-            textSize = 10f
-            setTextColor(Color.LTGRAY)
-            gravity = Gravity.CENTER
-            setPadding(0, dpTap(5), 0, 0)
-        }
-
-        column.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpTap(34)))
-        column.addView(tapBpmView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        parent.addView(column, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-    }
-
-    private fun dpTap(v: Int): Int = (v * resources.displayMetrics.density).roundToInt()
-
-    private fun setTapLed(on: Boolean) {
-        val view = tapLedView ?: return
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(if (on) Color.rgb(255, 174, 0) else Color.rgb(85, 85, 85))
-        }
-    }
-
-    private fun strobeSpeedForBpm(bpm: Double): Int {
-        val targetBpm = bpm.coerceIn(1.0, 1500.0)
-        val speed = if (targetBpm <= 200.0) {
-            1.0 + (targetBpm - 1.0) * 79.0 / 199.0
-        } else {
-            80.0 + 20.0 * ln(targetBpm / 200.0) / ln(1500.0 / 200.0)
-        }
-        return speed.roundToInt().coerceIn(1, 100)
-    }
-
-    private fun registerTap() {
-        val now = System.currentTimeMillis()
-        if (tapTimes.isNotEmpty() && now - tapTimes.last() > 2000L) {
-            tapTimes.clear()
-            stopTapBeat()
-        }
-        tapTimes.addLast(now)
-        while (tapTimes.size > 5) tapTimes.removeFirst()
-        flashTapLed()
-        if (tapTimes.size < 2) {
-            tapBpmView?.text = "BPM —"
-            return
-        }
-        val values = tapTimes.toList()
-        val intervals = values.zipWithNext { a, b -> (b - a).toDouble() }
-        val recent = intervals.takeLast(4)
-        val avg = recent.average().coerceAtLeast(1.0)
-        val bpm = 60000.0 / avg
-        // Strobe must flash twice for every user tap. Firmware Speed 1..80
-        // maps to 1..200 BPM; its 80..100 curve extends to 1500 BPM.
-        val effectBpm = (bpm * if (effect.gLight == 8) 2.0 else 1.0).coerceIn(1.0, 1500.0)
-        val speed = if (effect.gLight == 8) {
-            strobeSpeedForBpm(effectBpm)
-        } else {
-            (1.0 + (effectBpm - 1.0) * 79.0 / 199.0).roundToInt().coerceIn(1, 80)
-        }
-        tapBpmView?.text = "BPM ${bpm.roundToInt()}"
-        startTapBeat(effectBpm)
-        viewBinding.viewExtraPart.viewSlider.value = speed.toFloat()
-        viewBinding.viewExtraSliderPreview.text = "${speed}%"
-        saveLegacySpeed(speed)
-        saveEffectParam("speed", speed)
-        (activity as ActionListener?)?.onCommandChanged(GLights = effect.gLight, Speed = speed)
-    }
-
-    private fun flashTapLed() {
-        setTapLed(true)
-        tapLedOffRunnable?.let(tapHandler::removeCallbacks)
-        tapLedOffRunnable = Runnable { setTapLed(false) }
-        tapHandler.postDelayed(tapLedOffRunnable!!, 120L)
-    }
-
-    private fun startTapBeat(bpm: Double) {
-        stopTapBeat()
-        val period = (60000.0 / bpm).roundToInt().coerceAtLeast(1)
-        val r = object : Runnable {
-            override fun run() {
-                flashTapLed()
-                tapHandler.postDelayed(this, period.toLong())
-            }
-        }
-        tapBeatRunnable = r
-        tapHandler.post(r)
-    }
-
-    private fun stopTapBeat() {
-        tapBeatRunnable?.let { tapHandler.removeCallbacks(it) }
-        tapBeatRunnable = null
-        tapLedOffRunnable?.let(tapHandler::removeCallbacks)
-        tapLedOffRunnable = null
-        setTapLed(false)
-    }
 
     private fun preLoadEffectSetting() {
         viewBinding.viewUnderDevelopmentPart.hide()
@@ -706,8 +557,8 @@ class EffectSettingFragment : Fragment() {
         viewBinding.viewBrightnessPreview.text = "$brightnessValue%"
 
         if (effect.isSpeed || effect.isFrequency || effect.isSensitivity) {
-            val tapSyncEffect = effect.gLight == 4 || effect.gLight == 8 || effect.gLight == 12
-            viewBinding.viewExtraPart.viewSlider.valueFrom = if (tapSyncEffect) 1F else 0F
+            val positiveSpeedEffect = effect.gLight == 4 || effect.gLight == 8 || effect.gLight == 12
+            viewBinding.viewExtraPart.viewSlider.valueFrom = if (positiveSpeedEffect) 1F else 0F
             viewBinding.viewExtraPart.viewSlider.valueTo = 100F
             val uiValue = if (effect.isSensitivity) 100 - speedValue else speedValue
             viewBinding.viewExtraPart.viewSlider.value = uiValue.coerceIn(0, 100).toFloat()
@@ -824,8 +675,4 @@ class EffectSettingFragment : Fragment() {
         LogSystem.e(TAG, "onResume: ")
     }
 
-    override fun onDestroyView() {
-        stopTapBeat()
-        super.onDestroyView()
-    }
 }

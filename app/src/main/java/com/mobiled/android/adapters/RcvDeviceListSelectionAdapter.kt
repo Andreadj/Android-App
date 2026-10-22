@@ -94,12 +94,11 @@ class RcvDeviceListSelectionAdapter : RecyclerView.Adapter<RcvDeviceListSelectio
 
     private fun sendIdentificationCommand(item: HardwareGroupItem, source: View) {
         val device = item.hardwareDevice ?: return
-        val ip = device.ip?.trim().orEmpty()
         val apName = device.ApName?.trim().orEmpty()
         val udpClient = UdpClient.getClient(source.context)
-        if (ip.isNotEmpty() && udpClient.isDiscoveryOnline(apName)) {
-            udpClient.writeString("{\"Command\":2}", ip, 8889)
-        }
+        val ip = udpClient.currentDiscoveryIp(apName) ?: return
+        // Identification remains one unicast packet; resolve the current IP first.
+        udpClient.writeString("{\"Command\":2}", ip, 8889)
     }
 
     private fun commitPixelId(holder: ViewHolder, item: HardwareGroupItem) {

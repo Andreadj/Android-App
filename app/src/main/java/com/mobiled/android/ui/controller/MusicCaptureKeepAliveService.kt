@@ -13,7 +13,8 @@ import com.mobiled.android.R
 /**
  * Keeps the Android process important while the Music engine captures playback
  * audio in MusicFragment. The actual AudioRecord/MediaProjection session
- * remains owned by MusicFragment; this service does not start or stop Music.
+ * remains owned by MusicFragment; the service signals task removal or shutdown
+ * so the Fragment can release that session.
  */
 class MusicCaptureKeepAliveService : Service() {
 
@@ -21,6 +22,10 @@ class MusicCaptureKeepAliveService : Service() {
         private const val CHANNEL_ID = "mobiled_music_capture"
         private const val NOTIFICATION_ID = 4101
     }
+
+    var captureReady: Boolean = false
+        private set
+    var captureStopListener: (() -> Unit)? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -44,6 +49,7 @@ class MusicCaptureKeepAliveService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+            captureReady = true
         } catch (e: Throwable) {
             android.util.Log.e("MobileDMusic", "Music keep-alive foreground service could not start", e)
             stopSelf()
@@ -54,13 +60,22 @@ class MusicCaptureKeepAliveService : Service() {
         START_NOT_STICKY
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        notifyCaptureStopped()
         stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
+        notifyCaptureStopped()
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
+    }
+
+    private fun notifyCaptureStopped() {
+        captureReady = false
+        val listener = captureStopListener
+        captureStopListener = null
+        listener?.invoke()
     }
 
     inner class LocalBinder : android.os.Binder() {

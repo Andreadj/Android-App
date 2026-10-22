@@ -5,16 +5,19 @@ import android.graphics.Color
 import android.os.Bundle
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.activity.OnBackPressedCallback
 import androidx.lifecycle.ViewModelProvider
 import androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback
 import com.mobiled.android.LogSystem
 import com.mobiled.android.R
 import com.mobiled.android.adapters.GeneralUtil
 import com.mobiled.android.base.comman.UdpClient
+import com.mobiled.android.base.comman.DeviceRoutingPolicy
 import com.mobiled.android.base.model.HardwareDevice
 import com.mobiled.android.base.model.HardwareGroup
 import com.mobiled.android.base.model.HardwareGroupItem
 import com.mobiled.android.base.model.LightCommand
+import com.mobiled.android.base.model.PowerCommandPayload
 import com.mobiled.android.databinding.ActivityControllerBinding
 import com.mobiled.android.model.Effect
 import com.mobiled.android.ui.home.HomeActivity
@@ -38,14 +41,11 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         var frame: String
     )
 
-    // PC/Mac controller rule: once an effect is selected on a group, the
-    // online recipients and their virtual command context are frozen until a
-    // different effect is selected. Parameter-only changes reuse that target
-    // set. Newly discovered devices therefore do not enter the current
-    // selection implicitly.
+    // Membership persists while Discovery reachability and IPs remain live.
+    // Matrix and an active Music session retain their selected virtual slots.
     private var controllerSelectionSnapshot: MutableList<GroupCommandTarget>? = null
     private var controllerVirtualStripSnapshot: MutableList<GroupCommandTarget>? = null
-    private var controllerMusicSnapshot: MutableList<GroupCommandTarget>? = null
+    @Volatile private var controllerMusicSnapshot: MutableList<GroupCommandTarget>? = null
     private var controllerSelectionEffect: Int = -1
 
     // Discovery callbacks can remain queued after this Activity is destroyed.
@@ -75,7 +75,10 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
 
         startControllerDiscoveryListeners()
 
-        binding.viewToolbar.ivBack.setOnClickListener { onBackPressed() }
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = handleControllerBack()
+        })
+        binding.viewToolbar.ivBack.setOnClickListener { onBackPressedDispatcher.onBackPressed() }
 
 
         viewPagerAdapter = SlidePagerAdapter(this)
@@ -162,7 +165,11 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         }
 
         binding.navItemMusic.navItemRoot.setOnClickListener {
-            if (canOpenDistributedEffects("Music")) setViewPagerPosition(3)
+            if (canOpenDistributedEffects("Music")) {
+                if (binding.viewPager.currentItem == 3) {
+                    (viewPagerAdapter.getFragment(3) as? MusicFragment)?.retargetMusicSelection()
+                } else setViewPagerPosition(3)
+            }
         }
 
 
@@ -177,8 +184,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
                 return@setOnClickListener
             }
 
-            val snapshot = controllerSelectionSnapshot
-                ?: captureControllerSelection(currentControllerEffect())
+            val snapshot = currentGroupTargets()
 
             if (snapshot.isEmpty()) return@setOnClickListener
 
@@ -278,8 +284,8 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = controllerSelectionSnapshot
-        if (snapshot.isNullOrEmpty()) return
+        val snapshot = currentGroupTargets()
+        if (snapshot.isEmpty()) return
 
         val commands = snapshot.mapNotNull { target ->
             val hardwareDevice = target.item.hardwareDevice ?: return@mapNotNull null
@@ -420,11 +426,9 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         // The selection snapshot contains only online devices with valid IPs.
         // Music and Matrix then use the distinct consecutive PixelID prefix
         // starting at 0, retaining every online device assigned to each ID.
-        val onlineCandidates = (controllerSelectionSnapshot
-            ?: captureControllerSelection(currentControllerEffect()))
-            .map { it.item }
+        val onlineCandidates = getControllerVirtualStripSnapshot()
         if (feature.equals("Music", ignoreCase = true)) {
-            val musicItems = getControllerMusicVirtualStripSnapshot()
+            val musicItems = DeviceRoutingPolicy.consecutiveMembers(currentGroupTargets().map { it.item }) { it.PixelID }
             if (musicItems.isEmpty()) {
                 Toast.makeText(this, "No online MobileD in the consecutive PixelID prefix starting at 0.", Toast.LENGTH_LONG).show()
                 return false
@@ -433,10 +437,10 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         }
 
         val candidatesByPixelId = onlineCandidates
-            .filter { it.PixelID in 0..255 }
+            .filter { it.PixelID in 0..1023 }
             .groupBy { it.PixelID }
         val onlineItems = ArrayList<HardwareGroupItem>()
-        for (pixelId in 0..255) {
+        for (pixelId in 0..1023) {
             val bucket = candidatesByPixelId[pixelId].orEmpty()
             if (bucket.isEmpty()) break
             // Duplicate PixelIDs are multiple devices at the same position.
@@ -489,12 +493,17 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     private fun sendCommandToDevice(
         value: String,
         device: HardwareDevice,
-        ipAddress: String
+        ipAddress: String,
+        forceSend: Boolean = false,
+        reliable: Boolean = true
     ): Boolean {
-        if (ipAddress.isBlank() || value.isBlank()) return false
-        if (device.activeCommandFrame == value) return false
-        UdpClient.getClient(this@ControllerActivity)
-            .writeCommandString(value, ipAddress.trim())
+        if (value.isBlank()) return false
+        val currentIp = currentControllerDeviceIp(device) ?: return false
+        // Only suppress a repeated command while its Discovery still confirms it.
+        if (!forceSend && device.activeCommandFrame == value && commandConfirmed(device, value)) return false
+        val client = UdpClient.getClient(this@ControllerActivity)
+        if (reliable) client.writeCommandString(value, currentIp)
+        else client.writeRealtimeCommandString(value, currentIp)
         device.rememberSentCommand(value)
         return true
     }
@@ -518,46 +527,17 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         commandValue: Int,
         destinationIp: String? = device.ip
     ) {
-        if (destinationIp.isNullOrBlank() || device.deviceFrame.isEmpty()) return
+        if (currentControllerDeviceIp(device) == null || device.deviceFrame.isEmpty()) return
 
         val discovery = discoveryFrame(device)
         if (!discovery.has("Command")) return
         if (discovery.optInt("Command", 0) == commandValue) return
 
-        val glights = discovery.optInt("GLights", -1)
-        val payload = JSONObject().apply {
-            fun copy(key: String) {
-                if (discovery.has(key)) put(key, discovery.opt(key))
-            }
+        val payload = PowerCommandPayload.build(discovery, commandValue)
 
-            copy("Command")
-            copy("GLights")
-            when {
-                glights == 0 -> {
-                    copy("Brightness"); copy("Hue")
-                    copy("red"); copy("green"); copy("blue"); copy("white")
-                }
-                glights in 1..99 -> {
-                    copy("Speed"); copy("Brightness"); copy("GState"); copy("GPort")
-                }
-                glights == 100 -> {
-                    copy("GPort"); copy("GUniverse"); copy("PixelID"); copy("PixelCount")
-                }
-                glights in 101..199 -> {
-                    copy("Speed"); copy("Brightness"); copy("GState"); copy("GPort")
-                    copy("GUniverse"); copy("PixelID"); copy("PixelCount")
-                    copy("ColorCount"); copy("Random"); copy("Custom1"); copy("Custom2")
-                    copy("Custom3"); copy("OnOff1"); copy("OnOff2"); copy("Colors")
-                }
-                else -> {
-                    val keys = discovery.keys()
-                    while (keys.hasNext()) copy(keys.next())
-                }
-            }
-            put("Command", commandValue)
-        }.toString()
-
-        sendCommandToDevice(payload, device, destinationIp.trim())
+        // Discovery still differs from the requested power state. Allow an
+        // explicit retry even when the previous identical UDP command was lost.
+        sendCommandToDevice(payload, device, currentControllerDeviceIp(device) ?: return, forceSend = true)
     }
 
     override fun getFrame(): JSONObject {
@@ -572,7 +552,8 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         // Keep the existing normalization for the complete legacy payload,
         // but do not make missing optional fields a visual-state error.
         if (frame.has("Brightness")) {
-            frame.put("Brightness", frame.optInt("Brightness", 0).coerceIn(0, 100))
+            val maximum = if (frame.optInt("GLights", 0) in 101..199) 255 else 100
+            frame.put("Brightness", frame.optInt("Brightness", 0).coerceIn(0, maximum))
         }
         if (frame.has("white")) {
             frame.put("white", frame.optInt("white", 0).coerceIn(0, 255))
@@ -627,8 +608,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = controllerSelectionSnapshot
-            ?: captureControllerSelection(currentControllerEffect())
+        val snapshot = currentGroupTargets()
         snapshot.forEach { target ->
             val hardwareDevice = target.item.hardwareDevice ?: return@forEach
             val payload = buildPayload(hardwareDevice) ?: return@forEach
@@ -649,7 +629,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
 
     fun legacySendBase(device: HardwareDevice, effectId: Int): JSONObject {
         val active = device.activeCommandFrame
-            .takeIf { it.isNotBlank() }
+            .takeIf { it.isNotBlank() && device.actionTime >= 0 && !device.isReachedMaxActionWait() }
             ?.let { runCatching { JSONObject(it) }.getOrNull() }
         return if (active?.optInt("GLights", -1) == effectId) {
             active
@@ -663,7 +643,8 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         effectId: Int,
         overrides: JSONObject = JSONObject(),
         gState: String = "X",
-        gPort: String = "8889"
+        gPort: String = "8889",
+        gUniverse: Int? = null
     ): JSONObject {
         val payload = JSONObject()
         payload.put("Command", discovery.optInt("Command", 0))
@@ -672,6 +653,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         payload.put("Brightness", discovery.optInt("Brightness", 0))
         payload.put("GState", gState)
         payload.put("GPort", gPort)
+        if (gUniverse != null) payload.put("GUniverse", gUniverse)
 
         val keys = overrides.keys()
         while (keys.hasNext()) {
@@ -718,8 +700,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = controllerSelectionSnapshot
-            ?: captureControllerSelection(currentControllerEffect())
+        val snapshot = currentGroupTargets()
         if (snapshot.isEmpty()) return
 
         val currentEffect = currentControllerEffect()
@@ -757,10 +738,12 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
                 effectId,
                 overrides,
                 if (validMasterSlave) target.item.GState else "X",
-                if (group?.allDevices == true) "8890" else target.item.Gport
+                if (group?.allDevices == true) "8890" else target.item.Gport,
+                if (validMasterSlave) group?.GUniverse else null
             ).put("Command", discovery.optInt("Command", 0)).toString()
 
-            sendCommandToDevice(outgoing, hardwareDevice, target.ip)
+            sendCommandToDevice(outgoing, hardwareDevice, target.ip,
+                reliable = effectSelection || !validMasterSlave)
         }
 
         if (effectSelection) controllerSelectionEffect = GLights
@@ -821,10 +804,21 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
                     put("white", white)
                 }
             }
+            if (effectId == 8) {
+                currentEffectBase?.let { current ->
+                    listOf("Brightness", "red", "green", "blue", "white").forEach { key ->
+                        if (current.has(key)) put(key, current.opt(key))
+                    }
+                }
+            }
             if (effectId == 4 || effectId == 12) {
                 currentEffectBase?.let { current ->
-                    listOf("Brightness", "hue", "white").forEach { key ->
+                    listOf("Brightness", "white").forEach { key ->
                         if (current.has(key)) put(key, current.opt(key))
+                    }
+                    when {
+                        current.has("hue") -> put("hue", current.opt("hue"))
+                        current.has("Hue") -> put("hue", current.opt("Hue"))
                     }
                 }
             }
@@ -853,7 +847,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = controllerSelectionSnapshot ?: captureControllerSelection(currentControllerEffect())
+        val snapshot = currentGroupTargets()
         if (snapshot.isEmpty()) return
         val group = group ?: return
         val validMasterSlave = isValidLegacyMasterSlaveGroup()
@@ -865,7 +859,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         if (sameEffect) return
         val targets = snapshot
         if (targets.isEmpty()) return
-
+        // Legacy selection follows the PC group rule: mixed power is ON.
         val anyOn = snapshot.any {
             discoveryFrame(it.item.hardwareDevice ?: return@any false).optInt("Command", 0) == 1
         }
@@ -878,7 +872,8 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
                 effectId,
                 defaults,
                 if (validMasterSlave) target.item.GState else "X",
-                if (group.allDevices) "8890" else target.item.Gport
+                if (group.allDevices) "8890" else target.item.Gport,
+                if (validMasterSlave) group.GUniverse else null
             ).put("Command", if (anyOn) 1 else 0).toString()
             sendCommandToDevice(payload, d, target.ip)
         }
@@ -911,62 +906,61 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             .firstOrNull { it >= 0 } ?: -1
     }
 
-    private fun isCurrentlyDiscoveryOnline(device: HardwareDevice): Boolean {
+    fun currentControllerDeviceIp(device: HardwareDevice): String? {
         val apName = device.ApName?.trim().orEmpty()
-        if (apName.isEmpty() || device.ip.isNullOrBlank()) return false
-        return UdpClient.getClient(applicationContext).isDiscoveryOnline(apName)
+        val client = UdpClient.getClient(applicationContext)
+        val currentIp = client.currentDiscoveryIp(apName) ?: run {
+            device.markOffline()
+            return null
+        }
+        client.readLatestDiscoveryFrame(apName)?.let { latest ->
+            if (latest != device.deviceFrame) device.applyDiscoveryFrame(latest)
+        }
+        device.ip = currentIp
+        device.isOnline = true
+        return currentIp
     }
 
-    private fun captureControllerSelection(effect: Int): MutableList<GroupCommandTarget> {
-        val items = group?.groupItems.orEmpty()
-        val targets = items.mapNotNull { item ->
-            val hardwareDevice = item.hardwareDevice ?: return@mapNotNull null
-            val frame = discoveryFrame(hardwareDevice)
-            val ip = hardwareDevice.ip?.trim().orEmpty()
-            if (!isCurrentlyDiscoveryOnline(hardwareDevice) || ip.isEmpty() || !frame.has("Command")) return@mapNotNull null
+    private fun isCurrentlyDiscoveryOnline(device: HardwareDevice): Boolean =
+        currentControllerDeviceIp(device) != null
+
+    fun commandConfirmed(device: HardwareDevice, payload: String): Boolean = runCatching {
+        val expected = JSONObject(payload)
+        val actual = discoveryFrame(device)
+        expected.keys().asSequence().all { key ->
+            val actualKey = if (key == "hue" && !actual.has("hue")) "Hue" else key
+            actual.has(actualKey) && actual.opt(actualKey)?.toString() == expected.opt(key)?.toString()
+        }
+    }.getOrDefault(false)
+
+    private fun currentGroupTargets(): MutableList<GroupCommandTarget> =
+        group?.groupItems.orEmpty().mapNotNull { item ->
+            val d = item.hardwareDevice ?: return@mapNotNull null
+            val ip = currentControllerDeviceIp(d) ?: return@mapNotNull null
+            val frame = discoveryFrame(d)
+            if (!frame.has("Command")) return@mapNotNull null
             GroupCommandTarget(item, ip, frame.toString())
         }.toMutableList()
 
+    private fun captureControllerSelection(effect: Int): MutableList<GroupCommandTarget> {
+        val targets = currentGroupTargets()
         controllerSelectionSnapshot = targets
         controllerSelectionEffect = effect
-        captureVirtualStripSnapshot()
-        captureMusicSelectionSnapshot()
+        refreshControllerMatrixSelection()
         bindUI()
         return targets
     }
 
-    private fun captureVirtualStripSnapshot() {
-        if (group == null) {
-            controllerVirtualStripSnapshot = null
-            return
-        }
-
-        val configured = group!!.groupItems.orEmpty()
-            .filter { it.PixelID in 0..1279 }
-            .sortedBy { it.PixelID }
-
-        // Capture Discovery-online devices when the Controller group opens.
-        // Matrix and Music apply their consecutive PixelID prefix on this snapshot.
-        val result = configured.mapNotNull { item ->
-            val d = item.hardwareDevice ?: return@mapNotNull null
-            if (!isCurrentlyDiscoveryOnline(d) || d.ip.isNullOrBlank() || d.deviceFrame.isBlank()) return@mapNotNull null
-            GroupCommandTarget(item, d.ip!!.trim(), discoveryFrame(d).toString())
-        }
-        controllerVirtualStripSnapshot = result.toMutableList()
+    fun refreshControllerMatrixSelection(): List<HardwareGroupItem> {
+        controllerVirtualStripSnapshot = currentGroupTargets()
+            .filter { it.item.PixelID in 0..1023 }.toMutableList()
+        return getControllerVirtualStripSnapshot()
     }
 
-    private fun captureMusicSelectionSnapshot() {
-        if (group == null) {
-            controllerMusicSnapshot = null
-            return
-        }
-
-        controllerMusicSnapshot = group!!.groupItems.orEmpty().mapNotNull { item ->
-            val d = item.hardwareDevice ?: return@mapNotNull null
-            val ip = d.ip?.trim().orEmpty()
-            if (!isCurrentlyDiscoveryOnline(d) || ip.isEmpty()) return@mapNotNull null
-            GroupCommandTarget(item, ip, discoveryFrame(d).toString())
-        }.toMutableList()
+    fun refreshControllerMusicSelection(): List<HardwareGroupItem> {
+        val selected = DeviceRoutingPolicy.consecutiveMembers(currentGroupTargets()) { it.item.PixelID }
+        controllerMusicSnapshot = selected.toMutableList()
+        return getControllerMusicVirtualStripSnapshot()
     }
 
     fun getControllerVirtualStripSnapshot(): List<HardwareGroupItem> =
@@ -975,21 +969,14 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     fun getControllerMusicSnapshot(): List<HardwareGroupItem> =
         controllerMusicSnapshot.orEmpty().map { it.item }
 
-    fun getControllerMusicVirtualStripSnapshot(): List<HardwareGroupItem> {
-        val membersByPixelId = getControllerMusicSnapshot()
-            .filter { it.PixelID in 0..1023 }
-            .groupBy { it.PixelID }
-        val virtualStrip = ArrayList<HardwareGroupItem>()
-        for (pixelId in 0..1023) {
-            val members = membersByPixelId[pixelId].orEmpty()
-            if (members.isEmpty()) break
-            virtualStrip.addAll(members)
-        }
-        return virtualStrip
-    }
+    fun getControllerMusicVirtualStripSnapshot(): List<HardwareGroupItem> = getControllerMusicSnapshot()
 
-    fun getControllerSelectionSnapshot(): List<HardwareGroupItem> =
-        controllerSelectionSnapshot.orEmpty().map { it.item }
+    fun getCurrentControllerMusicMembers(): List<HardwareGroupItem> =
+        getControllerMusicSnapshot().filter { item ->
+            item.hardwareDevice?.let { currentControllerDeviceIp(it) != null } == true
+        }
+
+    fun getControllerSelectionSnapshot(): List<HardwareGroupItem> = currentGroupTargets().map { it.item }
 
     override fun onDestroy() {
         controllerDiscoveryActive = false
@@ -1066,7 +1053,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         changeEffectPageBackground(effect.gLight)
     }
 
-    override fun onBackPressed() {
+    private fun handleControllerBack() {
 
         if (!(getCurrentFragment() is EffectListFragment)) {
             binding.viewEffectBackground.setImageResource(0)

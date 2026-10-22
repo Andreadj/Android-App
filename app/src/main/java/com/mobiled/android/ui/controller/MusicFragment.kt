@@ -57,7 +57,11 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 
 class MusicFragment : BaseFragment<MusicBinding>() {
-    companion object { fun newInstance() = MusicFragment() }
+    companion object {
+        private const val SACN_UDP_PORT = 5568
+
+        fun newInstance() = MusicFragment()
+    }
 
     override fun getFragmentBinding(inflater: LayoutInflater, container: ViewGroup?) = MusicBinding.inflate(inflater, container, false)
     override fun handleBackPress() = false
@@ -76,7 +80,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private var brightness = 100
     private var white = 0
     private var transition = "Fade"
-    private var running = false
+    @Volatile private var running = false
+    @Volatile private var captureGeneration = 0
     private var projection: MediaProjection? = null
     private var projectionResultCode: Int = Activity.RESULT_CANCELED
     private var projectionData: Intent? = null
@@ -87,13 +92,31 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private var audioPermissionInFlight = false
     private var projectionConsentInFlight = false
     private var serviceBound = false
+    private var serviceBindingRequested = false
+    private var boundMusicService: MusicCaptureKeepAliveService? = null
     private val musicServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             serviceBound = true
-            if (capturePending) createProjectionAndStartCapture()
+            if (!capturePending && !running) {
+                releaseMusicServiceBinding()
+                return
+            }
+            val service = (binder as? MusicCaptureKeepAliveService.LocalBinder)?.getService()
+            if (service?.captureReady != true) {
+                failCapture("Music audio capture service could not start")
+                return
+            }
+            boundMusicService = service
+            service.captureStopListener = { failCapture("Music audio capture stopped") }
+            if (capturePending) {
+                if (Build.VERSION.SDK_INT >= 29) createProjectionAndStartCapture()
+                else failCapture("Music audio playback capture requires Android 10 or later")
+            }
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             serviceBound = false
+            boundMusicService = null
+            if (running || capturePending) failCapture("Music audio capture service disconnected")
         }
     }
     private var phase = 0f
@@ -150,7 +173,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        root = view.findViewById(9200)
+        root = view.findViewById(R.id.music_root)
         vuLeft = MusicVuBar(requireContext())
         vuRight = MusicVuBar(requireContext())
         buildUi()
@@ -187,6 +210,13 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             stopCapture(releaseProjection = true)
         }
         super.onDestroyView()
+    }
+
+    override fun onDestroy() {
+        // Background/page navigation leaves the Fragment alive. A destroyed
+        // Fragment must release its recorder, projection, service and worker.
+        stopCapture(releaseProjection = true)
+        super.onDestroy()
     }
 
     private fun buildUi() {
@@ -293,6 +323,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         }
         content.addView(controlsHost, LinearLayout.LayoutParams(-1, -2))
         root.addView(page, LinearLayout.LayoutParams(-1, -1))
+        loadColors()
+        loadRuntimeState()
         renderControls()
     }
 
@@ -370,6 +402,9 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         audioPermissionInFlight = false
         if (granted) {
             requestProjectionAuthorization()
+        } else {
+            captureRequested = false
+            capturePending = false
         }
     }
 
@@ -380,7 +415,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             projectionResultCode = result.resultCode
             projectionData = result.data
-            if (captureRequested && !running) startCaptureAfterAuthorization()
+            if (captureRequested && !running && Build.VERSION.SDK_INT >= 29) startCaptureAfterAuthorization()
         } else {
             projectionResultCode = Activity.RESULT_CANCELED
             projectionData = null
@@ -393,16 +428,25 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         if (!capturePending || running) return
         capturePending = false
         try {
-            val data = projectionData ?: throw IllegalStateException("MediaProjection consent data missing")
-            val manager = requireContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            projection = manager.getMediaProjection(projectionResultCode, data)
-            if (projection == null) throw IllegalStateException("MediaProjection unavailable")
+            if (projection == null) {
+                val data = projectionData ?: throw IllegalStateException("MediaProjection consent data missing")
+                val manager = requireContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                val session = manager.getMediaProjection(projectionResultCode, data)
+                    ?: throw IllegalStateException("MediaProjection unavailable")
+                projection = session
+                // A consent Intent is single use on Android 14. Keep the live
+                // projection, and request fresh consent after ending it.
+                projectionData = null
+                session.registerCallback(object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        if (projection === session) failCapture("Music audio capture authorization ended")
+                    }
+                }, handler)
+            }
             startCapture()
         } catch (e: Throwable) {
-            projection = null
-            stopMusicKeepAlive()
             android.util.Log.e("MobileDMusic", "MediaProjection could not be created", e)
-            Toast.makeText(requireContext(), "Audio capture could not be started.", Toast.LENGTH_SHORT).show()
+            failCapture("Audio capture could not be started")
         }
     }
 
@@ -418,15 +462,14 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             startMusicKeepAlive()
             if (!serviceBound) {
                 val intent = Intent(requireContext(), MusicCaptureKeepAliveService::class.java)
-                requireContext().bindService(intent, musicServiceConnection, Context.BIND_AUTO_CREATE)
+                serviceBindingRequested = requireContext().bindService(intent, musicServiceConnection, Context.BIND_AUTO_CREATE)
+                if (!serviceBindingRequested) throw IllegalStateException("Music capture service binding failed")
             } else {
                 createProjectionAndStartCapture()
             }
         } catch (e: Throwable) {
-            capturePending = false
-            stopMusicKeepAlive()
             android.util.Log.e("MobileDMusic", "Music foreground service could not start", e)
-            Toast.makeText(requireContext(), "Music audio capture unavailable", Toast.LENGTH_SHORT).show()
+            failCapture("Music audio capture unavailable")
         }
     }
 
@@ -858,17 +901,23 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     private fun saveRuntimeState() {
+        requireContext().getSharedPreferences("music_runtime_shared", Context.MODE_PRIVATE).edit()
+            .putInt("brightness",brightness).putInt("white",white).apply()
         requireContext().getSharedPreferences("music_runtime_$effect", Context.MODE_PRIVATE).edit()
-            .putString("state", JSONObject().put("brightness",brightness).put("white",white).put("transition",transition).toString())
+            .putString("state", JSONObject().put("transition",transition).toString())
             .apply()
     }
 
     private fun loadRuntimeState() {
-        val raw=requireContext().getSharedPreferences("music_runtime_$effect",Context.MODE_PRIVATE).getString("state",null) ?: return
-        val o=runCatching{JSONObject(raw)}.getOrNull() ?: return
-        brightness=o.optInt("brightness",brightness).coerceIn(0,100)
-        white=o.optInt("white",white).coerceIn(0,100)
-        transition=o.optString("transition",transition).ifBlank{"Fade"}
+        val raw=requireContext().getSharedPreferences("music_runtime_$effect",Context.MODE_PRIVATE).getString("state",null)
+        val previous=raw?.let { runCatching{JSONObject(it)}.getOrNull() }
+        val shared=requireContext().getSharedPreferences("music_runtime_shared",Context.MODE_PRIVATE)
+        // Main brightness and procedural White are shared across Music effects.
+        // Migrate the current effect's old values once, without changing palettes.
+        brightness=shared.getInt("brightness",previous?.optInt("brightness",brightness) ?: brightness).coerceIn(0,100)
+        white=shared.getInt("white",previous?.optInt("white",white) ?: white).coerceIn(0,100)
+        shared.edit().putInt("brightness",brightness).putInt("white",white).apply()
+        if(effect=="bpm") transition=previous?.optString("transition",transition)?.ifBlank{"Fade"} ?: transition
     }
 
     private fun loadColors() {
@@ -899,7 +948,11 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             // The selection command was sent before requesting capture authorization.
             // Do not resend here: Discovery may already have changed after navigation.
             val sr=48000;val minBuffer=AudioRecord.getMinBufferSize(sr,AudioFormat.CHANNEL_IN_STEREO,AudioFormat.ENCODING_PCM_16BIT);if(minBuffer<=0)throw IllegalStateException("AudioRecord buffer unavailable")
-            val cfg=AudioPlaybackCaptureConfiguration.Builder(p).addMatchingUsage(AudioAttributes.USAGE_MEDIA).addMatchingUsage(AudioAttributes.USAGE_GAME).build()
+            val cfg=AudioPlaybackCaptureConfiguration.Builder(p).addMatchingUsage(AudioAttributes.USAGE_MEDIA).addMatchingUsage(AudioAttributes.USAGE_GAME).addMatchingUsage(AudioAttributes.USAGE_UNKNOWN).build()
+            if (requireContext().checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                failCapture("Music audio capture requires audio recording permission")
+                return
+            }
             recorder=AudioRecord.Builder().setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(sr).setChannelMask(AudioFormat.CHANNEL_IN_STEREO).build()).setBufferSizeInBytes(max(8192,minBuffer*2)).setAudioPlaybackCaptureConfig(cfg).build();recorder?.startRecording();if(recorder?.recordingState!=AudioRecord.RECORDSTATE_RECORDING)throw IllegalStateException("AudioRecord did not start")
             lastBeat=0L
             beatPeriodMs=600L
@@ -919,39 +972,50 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             bpmTransitionMode="fade"
             musicSequenceCid=UUID.randomUUID().toString().replace("-", "").chunked(2).map { it.toInt(16).toByte() }.toByteArray()
             lastMusicFrameAt=0L
+            val activeRecorder = recorder ?: throw IllegalStateException("AudioRecord unavailable")
+            val generation = ++captureGeneration
             running=true
-            worker=Thread{loop(sr)}.also{it.start()}
+            worker=Thread{loop(sr, activeRecorder, generation)}.also{it.start()}
          }catch(e:Exception){
-             recorder?.release();recorder=null;running=false;stopMusicKeepAlive()
              android.util.Log.e("MobileDMusic", "Music AudioRecord capture failed: ${e.javaClass.name}: ${e.message}", e)
-             Toast.makeText(requireContext(),"Music audio capture unavailable",Toast.LENGTH_SHORT).show()
+             failCapture("Music audio capture unavailable")
          }
     }
 
     private fun releaseMusicServiceBinding() {
-        if (serviceBound) {
-            try { requireContext().unbindService(musicServiceConnection) } catch (_: Exception) {}
-            serviceBound = false
+        boundMusicService?.captureStopListener = null
+        boundMusicService = null
+        if (serviceBindingRequested || serviceBound) {
+            try { context?.unbindService(musicServiceConnection) } catch (_: Exception) {}
         }
+        serviceBound = false
+        serviceBindingRequested = false
+    }
+
+    private fun failCapture(message: String) {
+        stopCapture(releaseProjection = true)
+        context?.let { Toast.makeText(it, message, Toast.LENGTH_SHORT).show() }
     }
 
     private fun stopCapture(releaseProjection:Boolean=true){
         running=false
+        ++captureGeneration
+        capturePending=false
         worker?.interrupt();worker=null
-        try{recorder?.stop()}catch(_:Exception){}
-        recorder?.release();recorder=null
-        if (serviceBound) {
-            try { requireContext().unbindService(musicServiceConnection) } catch (_: Exception) {}
-            serviceBound = false
-        }
+        val activeRecorder=recorder
+        recorder=null
+        try{activeRecorder?.stop()}catch(_:Exception){}
+        try{activeRecorder?.release()}catch(_:Exception){}
+        releaseMusicServiceBinding()
         stopMusicKeepAlive()
         closeMusicSacnSocket()
         if(releaseProjection){
             captureRequested = false
-            projection?.stop()
+            val activeProjection = projection
             projection = null
             projectionData = null
             projectionResultCode = Activity.RESULT_CANCELED
+            try { activeProjection?.stop() } catch (_: Exception) {}
         }
     }
 
@@ -967,7 +1031,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     }
 
     private fun stopMusicKeepAlive(){
-        requireContext().stopService(Intent(requireContext(), MusicCaptureKeepAliveService::class.java))
+        context?.let { it.stopService(Intent(it, MusicCaptureKeepAliveService::class.java)) }
     }
 
     fun deactivateMusic(){
@@ -976,6 +1040,11 @@ class MusicFragment : BaseFragment<MusicBinding>() {
 
     private fun onlineMembers():List<HardwareGroupItem> =
         (requireActivity() as ControllerActivity).getControllerMusicVirtualStripSnapshot()
+
+    fun retargetMusicSelection() {
+        if (!running) return
+        if (!sendMusicSelection()) stopCapture(releaseProjection = true)
+    }
 
     private fun musicPixelIds(items:List<HardwareGroupItem>):List<Int> =
         items.map { it.PixelID }.distinct().sorted()
@@ -994,9 +1063,9 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val group=a.group ?: run {
             Toast.makeText(requireContext(),"Music requires a group.",Toast.LENGTH_SHORT).show(); return false
         }
-        // Validate and route the online snapshot captured when this group
-        // was selected. Offline inventory rows do not participate in Music.
-        val items=onlineMembers()
+        // Capture the current online selection explicitly. Its Pixel IDs remain
+        // fixed while streaming; temporary disconnects never renumber the strip.
+        val items=a.refreshControllerMusicSelection()
         if(items.isEmpty()){
             Toast.makeText(requireContext(),"No reachable MobileD in this group.",Toast.LENGTH_SHORT).show(); return false
         }
@@ -1017,33 +1086,32 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         // by the normal 50 ms / 15 ms trailing reliability sequence.
         items.sortedBy{it.PixelID}.forEach{item->
             val d=item.hardwareDevice ?: return@forEach
-            val ip=d.ip?.trim().orEmpty()
-            if(ip.isBlank()) return@forEach
+            val ip=a.currentControllerDeviceIp(d) ?: return@forEach
             val discovery=JSONObject(d.deviceFrame.ifBlank { "{}" })
             if(!discovery.has("Command")) return@forEach
             val payload=JSONObject().apply{
-                // Preserve the current device state from Discovery.
-                put("Command", discovery.optInt("Command",0))
+                // Selecting Music explicitly enables the selected lights.
+                put("Command", 1)
                 put("GLights",100)
                 put("GPort",gPort)
                 put("GUniverse",universe)
                 put("PixelID",item.PixelID)
                 put("PixelCount",total)
             }.toString()
-            if(payload != d.activeCommandFrame){
-                client.writeCommandString(payload,ip)
-                d.rememberSentCommand(payload)
-            }
+            client.writeCommandString(payload,ip)
+            d.rememberSentCommand(payload)
         }
         return true
     }
 
-    private fun loop(sr:Int) {
+    private fun loop(sr:Int, activeRecorder:AudioRecord, generation:Int) {
         val buf=ShortArray(1024)
         try {
-            while(running){
-                val n=recorder?.read(buf,0,buf.size) ?: 0
-                if(n<=0)continue
+            while(running && captureGeneration == generation){
+                val n=activeRecorder.read(buf,0,buf.size)
+                if (!running || captureGeneration != generation) break
+                if (n < 0) throw IllegalStateException("AudioRecord read failed ($n)")
+                if(n == 0) { Thread.sleep(5); continue }
 
                 var left=0f
                 var right=0f
@@ -1076,7 +1144,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                 bpm=(60000f/max(1L,beatPeriodMs).toFloat()).roundToInt().coerceIn(80,160)
 
                 handler.post{
-                    if(::vuLeft.isInitialized){
+                    if(running && captureGeneration == generation && ::vuLeft.isInitialized){
                         vuLeft.level=left
                         vuRight.level=right
                         vuLeft.invalidate()
@@ -1097,7 +1165,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             }
         } catch (e: Throwable) {
             android.util.Log.e("MobileDMusic", "Music capture loop failed", e)
-            handler.post { if (running) stopCapture(releaseProjection = false) }
+            handler.post { if (running && captureGeneration == generation) failCapture("Music audio capture stopped") }
         }
     }
 
@@ -1181,8 +1249,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         // Render and route only the online devices in the consecutive PixelID
         // prefix selected for this group. Duplicate IDs share a strip position.
         val configuredItems=onlineMembers()
-        val routeItems=configuredItems
-        if(configuredItems.isEmpty())return
+        val routeItems=a.getCurrentControllerMusicMembers()
+        if(configuredItems.isEmpty() || routeItems.isEmpty())return
         val count=configuredItems.map { it.PixelID }.distinct().size
         if(spectrumLightLevels.size!=count)spectrumLightLevels=FloatArray(count)
         val dt=.033f
@@ -1228,27 +1296,12 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                         bpmToIndex=(bpmFromIndex+1)%seq.size
                         bpmTransitionStart=now
                     }
-                    val from=hueForColor(palette[seq[bpmFromIndex%seq.size]])
-                    val to=hueForColor(palette[seq[bpmToIndex%seq.size]])
-                    val elapsed=max(0L,now-bpmTransitionStart).toFloat()
-                    val beatMs=max(80L,beatPeriodMs).toFloat()
-                    var h=to
-                    var l=smoothLightLevel(level,dt)
-                    val p=elapsed/max(40f,beatMs/3f)
-                    when(bpmTransitionMode){
-                        "fade"->{h=interpolateHue(from,to,p.coerceIn(0f,1f));l=level}
-                        "crossfade"->{
-                            when{
-                                p<1f->{h=from;l=level*(1f-p)}
-                                p<2f->{h=to;l=0f}
-                                else->{h=to;l=level*(p-2f).coerceIn(0f,1f)}
-                            }
-                        }
-                        else->{h=to;l=level}
-                    }
-                    // The PC MusicEngine renders saved BPM colors by hue only;
-                    // the global White control supplies the RGBW white channel.
-                    for(i in 0 until count)writeMusicPixel(frame,i,h,l)
+                    val pixel=MusicOutput.bpmPixel(
+                        palette[seq[bpmFromIndex%seq.size]], palette[seq[bpmToIndex%seq.size]],
+                        bpmTransitionMode, now-bpmTransitionStart, beatPeriodMs,
+                        level, smoothLightLevel(level,dt), brightness, seq.size
+                    )
+                    for(i in 0 until count)frame[i]=pixel.copyOf()
                 }
             }
             "spectrum"->{
@@ -1256,17 +1309,15 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                 val colorCount=assign.size.coerceIn(0,10)
                 if(colorCount>0){
                     for(i in 0 until count){
-                        val groupIndex=min(colorCount-1,(i*colorCount)/max(1,count))
+                        val pixelGroupCount=min(colorCount,count)
+                        val groupIndex=min(pixelGroupCount-1,(i*pixelGroupCount)/max(1,count))
                         val bandIndex=if(colorCount<=3)spectrumBandMap[assign[groupIndex]].coerceIn(0,2) else groupIndex
                         val range=bandRange(bandIndex,if(colorCount<=3)3 else colorCount)
                         val e=audioBand(fd,range.first,range.second,sampleRate)
                         val raw=(e*12f).coerceIn(0f,1f)
                         val l=smoothSpectrumLevel(i,raw,dt)
                         val c=spectrumColors[assign[groupIndex]]
-                        val h=hueForColor(c)
-                        // The PC MusicEngine uses the saved hue and applies
-                        // the global White control to the RGBW frame.
-                        writeMusicPixel(frame,i,h,l)
+                        frame[i]=MusicOutput.scalePalette(MusicOutput.palette(c),l,brightness)
                     }
                 }
             }
@@ -1287,23 +1338,15 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             }
         }
 
-        val universes=HashMap<Int,ByteArray>()
-        configuredItems.forEach{item->
-            val pixel=item.PixelID
-            val u=group.GUniverse+floor(pixel/128.0).toInt()
-            val ch=(pixel%128)*4
-            val dmx=universes.getOrPut(u){ByteArray(512)}
-            val p=frame.getOrElse(pixel){intArrayOf(0,0,0,0)}
-            dmx[ch]=p[0].toByte();dmx[ch+1]=p[1].toByte();dmx[ch+2]=p[2].toByte();dmx[ch+3]=p[3].toByte()
-        }
+        // Reachability selects the network route. The complete fixed virtual
+        // strip supplies every RGBW position for external fixtures on DMX OUT.
+        val universes=MusicOutput.dmxUniverses(frame,group.GUniverse)
         val routeIp=routeItems.firstOrNull()?.hardwareDevice?.ip?.trim().orEmpty()
         if(routeIp.isBlank())return
-        val gPort=if(group.allDevices) 8890 else group.groupItems.orEmpty()
-            .firstOrNull()?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 } ?: return
         universes.forEach{(u,dmx)->
             // Each group owns exactly ten consecutive universes from its base.
             if (u in group.GUniverse..(group.GUniverse + 9)) {
-                sendSacnUniverse(gPort,u,dmx,routeIp)
+                sendSacnUniverse(u,dmx,routeIp)
             }
         }
     }
@@ -1412,14 +1455,13 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         musicSacnRouteIp=""
     }
 
-    private fun sendSacnUniverse(gPort:Int,universe:Int,dmx:ByteArray,routeIp:String){
-        // Match PC App 0.20.44 transport exactly: the configured group's GPort
-        // is the UDP destination port; the universe selects the sACN multicast
-        // address. Packet is the PC's 127-byte header plus 512 DMX slots.
-        if(gPort !in 1024..65535 || gPort==8889 || gPort==6454 || gPort==5568 ||
-            universe !in 1..63999 || dmx.size < 512 || routeIp.isBlank()) return
+    private fun sendSacnUniverse(universe:Int,dmx:ByteArray,routeIp:String){
+        // GPort identifies the group in command/configuration payloads. E1.31
+        // frames always use the standard UDP port; universe selects multicast.
+        // Standard E1.31: 126-byte header/start code plus all 512 DMX slots.
+        if(universe !in 1..63999 || dmx.size < 512 || routeIp.isBlank()) return
         try{
-            if(musicSacnSocket==null || musicSacnRouteIp!="$routeIp:$gPort"){
+            if(musicSacnSocket==null || musicSacnRouteIp!=routeIp){
                 closeMusicSacnSocket()
                 val socket=MulticastSocket()
                 socket.timeToLive=1
@@ -1427,38 +1469,25 @@ class MusicFragment : BaseFragment<MusicBinding>() {
                 musicSacnNetworkInterface=findInterfaceForRoute(routeIp)
                 if(musicSacnNetworkInterface!=null) socket.networkInterface=musicSacnNetworkInterface
                 musicSacnSocket=socket
-                musicSacnRouteIp="$routeIp:$gPort"
+                musicSacnRouteIp=routeIp
             }
             val socket=musicSacnSocket ?: return
             val seq=((musicSequences[universe] ?: 0)+1) and 255
             musicSequences[universe]=seq
-            val p=ByteArray(639)
-            fun u16(o:Int,v:Int){ p[o]=((v ushr 8) and 255).toByte(); p[o+1]=(v and 255).toByte() }
-            fun u32(o:Int,v:Int){ p[o]=(v ushr 24).toByte(); p[o+1]=(v ushr 16).toByte(); p[o+2]=(v ushr 8).toByte(); p[o+3]=v.toByte() }
-            u16(0,0x0010); u16(2,0)
-            byteArrayOf(0x41,0x53,0x43,0x2d,0x45,0x31,0x2e,0x31,0x37,0,0,0).copyInto(p,4)
-            u16(16,0x727E); u32(18,4)
-            musicSequenceCid.copyInto(p,22,0,min(16,musicSequenceCid.size))
-            u16(38,0x704D); u32(40,2)
-            "MobileD Music".toByteArray(Charsets.US_ASCII).copyInto(p,44)
-            p[108]=100
-            u16(109,0); p[111]=seq.toByte(); u16(112,0); u16(114,universe)
-            u16(116,0x720B); p[118]=0x02; p[119]=0xA1.toByte()
-            u16(120,0); u16(122,1); u16(124,513); p[126]=0
-            dmx.copyInto(p,127,0,512)
+            val p=MusicOutput.sacnPacket(dmx,universe,seq,musicSequenceCid)
             val addr=InetAddress.getByName("239.255.${(universe ushr 8) and 255}.${universe and 255}")
-            socket.send(DatagramPacket(p,p.size,addr,gPort))
-            val logKey="$routeIp:$gPort:$universe"
+            socket.send(DatagramPacket(p,p.size,addr,SACN_UDP_PORT))
+            val logKey="$routeIp:$universe"
             val now=System.currentTimeMillis()
             if(now-(musicSacnLastLogAt[logKey] ?: 0L)>=1000L){
                 musicSacnLastLogAt[logKey]=now
                 val activeChannels=dmx.count { (it.toInt() and 0xff)!=0 }
                 val firstRgbw=(0..3).joinToString(",") { (dmx[it].toInt() and 0xff).toString() }
-                android.util.Log.i("MobileDMusic", "sACN sent GPort=$gPort universe=$universe route=$routeIp bytes=${p.size} activeChannels=$activeChannels firstRGBW=$firstRgbw")
+                android.util.Log.i("MobileDMusic", "sACN sent UDP=$SACN_UDP_PORT universe=$universe route=$routeIp bytes=${p.size} activeChannels=$activeChannels firstRGBW=$firstRgbw")
             }
         }catch(e:Exception){
             closeMusicSacnSocket()
-            android.util.Log.e("MobileDMusic","sACN send failed for GPort $gPort, universe $universe",e)
+            android.util.Log.e("MobileDMusic","sACN send failed for universe $universe",e)
         }
     }
 
@@ -1529,7 +1558,7 @@ class MusicBinding private constructor(private val root:View):androidx.viewbindi
         fun inflate(inflater:LayoutInflater,container:ViewGroup?,attach:Boolean=false):MusicBinding{
             val c=inflater.context
             val scroll=ScrollView(c)
-            val l=LinearLayout(c).apply{id=9200;orientation=LinearLayout.VERTICAL;setPadding(12,10,12,20)}
+            val l=LinearLayout(c).apply{id=R.id.music_root;orientation=LinearLayout.VERTICAL;setPadding(12,10,12,20)}
             scroll.addView(l)
             return MusicBinding(scroll)
         }

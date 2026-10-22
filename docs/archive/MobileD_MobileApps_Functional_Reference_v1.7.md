@@ -18,26 +18,32 @@ Data: 19/10/2026
 | Elemento | Regola |
 |---|---|
 | Discovery UDP | 8232 |
-| Comandi App → MobileD | UDP 8889 |
+| Comandi/configurazione App → MobileD | Unicast UDP 8889 |
+| Frame sACN / E1.31 | UDP 5568; universo nel frame e indirizzo multicast identificano il flusso |
 | Art-Net | UDP 6454 |
-| sACN / E1.31 | UDP 5568 |
 | `Command` | 0 = OFF, 1 = ON, 2 = FLASH |
 | `GLights` | 0 = Color; 1–99 = Legacy; 100 = Music; 101–199 = Matrix |
 | `GState` | X = diretto/locale; M = Master; S = Slave |
-| Porta All Devices | `GPort=8890` |
+| Identificatore di gruppo | `GPort` è un valore scalare incluso nei payload di comando/configurazione; non è una porta UDP di destinazione |
+| GPort All Devices | `8890`, identificatore del gruppo di sistema |
+| Universo All Devices | `GUniverse=32000`; base del blocco riservato |
 | Affidabilità comando | Invio immediato; dopo 50 ms senza un comando più recente, 3 ritrasmissioni a intervalli di 15 ms |
 | ON/OFF | Preservare payload configurato/ricevuto; cambiare solo `Command` |
 
 Color resta sul proprio percorso e usa `GLights=0`. Music usa `GLights=100`; Matrix usa i codici 101–199. La correzione delle funzioni Matrix/Music non deve cambiare il protocollo Color o Legacy.
 
-## 2. Universi e porte dei gruppi
+## 2. Identificatori di gruppo e universi
 
-| Contesto | Base / prenotazione | Porta |
+| Contesto | GPort (identificatore) | GUniverse (destinazione frame) |
 |---|---|---|
-| All Devices | Base fissa 32000; blocco riservato 32000–32009 | 8890 |
-| Gruppo utente | Base casuale tra 32010 e 35000 inclusi; prenota 10 universi da base a base+9 | Porta del gruppo, almeno 10000 |
+| All Devices | `8890` | Base fissa 32000; blocco riservato 32000–32009 |
+| Gruppo utente | Identificatore assegnato casualmente (policy allocator esistente: 10000–65535) | Base casuale tra 32010 e 35000 inclusi; prenota 10 universi da base a base+9 |
 
-Prima di assegnare un blocco a un gruppo utente, controllare tutte le prenotazioni per evitare sovrapposizioni. Salvare la base assegnata e riutilizzarla dopo riavvio e import/export. Eliminare un gruppo libera il suo blocco; non rinumerare gli altri gruppi. Il valore 35000 è il limite della **base assegnabile**; il blocco riservato può arrivare a base+9.
+`GPort` identifica il gruppo nei payload di configurazione/comando; non seleziona né modifica il socket di trasmissione. Non interpretare il suo valore numerico come porta di destinazione e non introdurre un’esclusione speciale solo perché coincide con la porta standard sACN 5568. Restano valide le policy esistenti dell’allocator per la scelta degli identificatori.
+
+`GUniverse` è invece la base del gruppo per i frame distribuiti. Per sACN/E1.31 Android invia a UDP 5568 e usa l’universo nel frame per scegliere il multicast standard `239.255.<universo-high>.<universo-low>`. Discovery resta su UDP 8232 e tutti i comandi/configurazioni App → MobileD restano unicast UDP 8889, indipendentemente da GPort e GUniverse.
+
+Prima di assegnare un blocco di universi a un gruppo utente, controllare tutte le prenotazioni per evitare sovrapposizioni. Salvare la base assegnata e riutilizzarla dopo riavvio e import/export. Eliminare un gruppo libera il suo blocco; non rinumerare gli altri gruppi. Il valore 35000 è il limite della **base assegnabile**; il blocco riservato può arrivare a base+9.
 
 Per Music e per i frame distribuiti, la mappatura RGBW è:
 
@@ -65,9 +71,10 @@ Music usa uno snapshot separato di tutti i membri online del gruppo. Gli ID devo
 - Una modifica di parametri dello stesso effetto può essere inviata al solo Master quando Discovery conferma, per ogni membro online, effetto, ruolo, porta, universo, PixelID e PixelCount attesi. Se la conferma manca, Android riconfigura il gruppo online.
 - Ogni payload Matrix conserva il `Command` letto dal Discovery del destinatario. La selezione dell’effetto non forza ON; OFF rimane OFF. L’azione ON/OFF è l’unica che cambia intenzionalmente il campo Command.
 - Il payload comprende i campi previsti dall’effetto: GLights, Speed, Brightness, GState, GPort, GUniverse, PixelID, PixelCount, ColorCount, Random, Custom1/2/3, OnOff1/2 e Colors secondo applicabilità.
+- Per i comandi Legacy di gruppo con ruoli Master/Slave, Android include GPort come identificatore del gruppo e GUniverse come base di indirizzamento; i comandi continuano a viaggiare su UDP 8889.
 - Il rendering distribuito è compito del firmware; Android configura il gruppo e non genera una copia dell’effetto per ciascuno Slave.
 - I controlli Tap Sync Matrix sono presenti per gli effetti 101 e 105; la corrispondenza temporale resta da verificare su hardware.
-- Legacy Strobe (GLights=8): un tap equivale a due flash. Android raddoppia il BPM misurato e converte il risultato usando la curva firmware: Speed 1–80 = 1–200 BPM, Speed 80–100 = 200–1500 BPM. Non applicare un limite a 200 BPM prima della conversione.
+- Tap Sync è disponibile soltanto in Matrix (101 e 105). Rimosso dagli effetti Legacy Breath, Strobe e Heartbeat; questi mantengono la regolazione manuale Speed.
 
 ## 5. Music
 
@@ -77,6 +84,8 @@ Music usa uno snapshot separato di tutti i membri online del gruppo. Gli ID devo
 - Android conserva per ogni destinatario il `Command` presente nel suo Discovery. Non deduce ON/OFF dall’effetto selezionato. La discrepanza tra questa regola per-destinazione e una formulazione storica che calcola un singolo Command per il gruppo è risolta qui in favore dello stato Discovery per-device.
 - Il cambio di sottotipo Music nella stessa sessione aggiorna l’elaborazione dell’App e non invia un nuovo comando UDP di routing. Il cambio di gruppo/sessione richiede una nuova selezione e un nuovo routing.
 - Il frame realtime è separato dal comando di selezione e viene trasmesso via sACN multicast, con limite di circa 30 fps (un frame ogni ~33 ms).
+- Ogni frame Music sACN usa sempre UDP 5568; GPort non è passato come porta di destinazione. GUniverse determina l’indirizzo multicast e resta nel payload di routing/configurazione unicast inviato su UDP 8889.
+- La priorità sACN (Priority) è un campo del frame associato al singolo universo, non un’impostazione globale del gruppo e non un sostituto di GPort/GUniverse. I dispositivi confrontano la priorità dei flussi che ricevono per ciascun universo; gli universi del blocco sono flussi distinti. Android imposta Priority a 100 nei frame Music.
 - La cattura Android usa la cattura di playback disponibile sulla piattaforma Android; non è la cattura system-loopback desktop della PC App. Permessi, foreground service e disponibilità della sorgente audio devono essere verificati sul dispositivo.
 - Android implementa Rainbow, Random, Rainbow Chase, BPM, Spectrum e VU Meter. Le differenze di piattaforma audio non autorizzano gain o normalizzazioni non presenti nel contratto.
 

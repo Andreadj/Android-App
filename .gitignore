@@ -14,3 +14,9 @@ local.properties
 # Android signing / private keys
 Keystore/
 private_key.pepk
+
+/.maintenance/
+
+/dist/
+
+/.kotlin/

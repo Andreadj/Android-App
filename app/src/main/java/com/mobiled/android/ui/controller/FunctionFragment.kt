@@ -21,6 +21,7 @@ class FunctionFragment : BaseFragment<FragmentFunctionBinding>() {
         viewBinding.viewCustom.setOnClickListener {
             if (currentTabPosition != 1) {
                 val controller = activity as? ControllerActivity ?: return@setOnClickListener
+                controller.refreshControllerMatrixSelection()
                 if (controller.canOpenDistributedEffects("Matrix")) bindTab(1)
             }
         }

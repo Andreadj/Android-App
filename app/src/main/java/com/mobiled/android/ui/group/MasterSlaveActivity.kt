@@ -140,23 +140,10 @@ class MasterSlaveActivity :
             // The selected Master is always the virtual strip origin.
             // Preserve every other configured PixelID; duplicate IDs are valid.
             masterItem?.PixelID = 0
-            val onlineIds = onlineItems.mapNotNull { it.gItemRowId }.toSet()
+            // Roles belong to persistent membership, including temporarily offline Slaves.
             hardwareGroup?.groupItems?.forEach {
-                when {
-                    it.gItemRowId == selectedMasterId -> {
-                        it.Gport = prePort
-                        it.GState = "M"
-                    }
-
-                    it.gItemRowId in onlineIds -> {
-                        it.Gport = prePort
-                        it.GState = "S"
-                    }
-
-                    else -> {
-                        it.GState = "X"
-                    }
-                }
+                it.Gport = prePort
+                it.GState = if (it.gItemRowId == selectedMasterId) "M" else "S"
             }
 
             viewModel.onSaveButtonPressed(hardwareGroup!!)

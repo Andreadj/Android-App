@@ -18,6 +18,7 @@ import com.mobiled.android.R
 import com.mobiled.android.adapters.GeneralUtil
 import com.mobiled.android.base.BaseFragment
 import com.mobiled.android.base.comman.UdpClient
+import com.mobiled.android.base.comman.DeviceRoutingPolicy
 import com.mobiled.android.base.component.ColorPickerView
 import com.mobiled.android.base.model.HardwareDevice
 import com.mobiled.android.base.model.HardwareGroup
@@ -66,6 +67,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     private lateinit var speed: SeekBar
     private lateinit var brightness: SeekBar
     private lateinit var speedValue: TextView
+    private var updateSpeedControl: ((Int) -> Unit)? = null
     private lateinit var brightnessValue: TextView
     private lateinit var preview: PixelPreview
     private val colors = MutableList(10) { intArrayOf(255, 255, 255, 0) }
@@ -86,9 +88,9 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        root = view.findViewById(9000)
-        title = view.findViewById(9001)
-        preview = view.findViewById(9007)
+        root = view.findViewById(R.id.matrix_root)
+        title = view.findViewById(R.id.matrix_title)
+        preview = view.findViewById(R.id.matrix_preview)
         speed = SeekBar(requireContext()).apply { max = 100; progress = 50 }
         brightness = SeekBar(requireContext()).apply { max = 255; progress = 255 }
         speedValue = TextView(requireContext()).apply { setTextColor(Color.WHITE); text = "Speed 50" }
@@ -103,7 +105,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             override fun onStartTrackingTouch(b: SeekBar?) {}
             override fun onStopTrackingTouch(b: SeekBar?) {}
         })
-        view.findViewById<Button>(9008)?.setOnClickListener { showEffectList() }
+        view.findViewById<Button>(R.id.matrix_back)?.setOnClickListener { showEffectList() }
         buildEffectCards()
         showEffectList()
     }
@@ -117,6 +119,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     }
 
     override fun onDestroyView() {
+        updateSpeedControl = null
         preview.stopAnimation()
         super.onDestroyView()
     }
@@ -124,23 +127,26 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     private fun showEffectList() {
         effectSelected = false
         preview.stopAnimation()
-        root.findViewById<Button>(9008)?.visibility = View.GONE
-        root.findViewById<LinearLayout>(9004)?.visibility = View.VISIBLE
-        root.findViewById<LinearLayout>(9010)?.visibility = View.GONE
+        root.findViewById<Button>(R.id.matrix_back)?.visibility = View.GONE
+        root.findViewById<LinearLayout>(R.id.matrix_effect_list)?.visibility = View.VISIBLE
+        root.findViewById<LinearLayout>(R.id.matrix_controls)?.visibility = View.GONE
         title.visibility = View.GONE
     }
 
     private fun selectEffect(id: Int) {
         // PC App parity: selecting a non-Music effect must terminate the Music
         // capture/session before the new effect is applied.
-        (activity as? ControllerActivity)?.stopMusicForExternalControl()
+        (activity as? ControllerActivity)?.apply {
+            stopMusicForExternalControl()
+            refreshControllerMatrixSelection()
+        }
         effectSelected = true
         effectId = id
-        root.findViewById<Button>(9008)?.visibility = View.GONE
-        root.findViewById<LinearLayout>(9004)?.visibility = View.GONE
-        root.findViewById<LinearLayout>(9010)?.visibility = View.VISIBLE
+        root.findViewById<Button>(R.id.matrix_back)?.visibility = View.GONE
+        root.findViewById<LinearLayout>(R.id.matrix_effect_list)?.visibility = View.GONE
+        root.findViewById<LinearLayout>(R.id.matrix_controls)?.visibility = View.VISIBLE
         val spec = specs.first { it.id == id }
-        val members = onlineMembers()
+        val members = stripMembers()
         val shouldSelect = members.any {
             JSONObject(it.hardwareDevice?.deviceFrame.orEmpty()).optInt("GLights", -1) != id
         }
@@ -157,15 +163,15 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         preview.onOff2 = onOff2
         val activeCount = (0 until spec.colors.coerceAtMost(10)).takeWhile { colorSaved[it] }.size
         preview.colors = colors.take(activeCount).map { it.copyOf() }
-        preview.pixelCount = onlineMembers().size.coerceAtLeast(1)
+        preview.pixelCount = aPixelCount().coerceAtMost(20)
         preview.startAnimation()
         // The PC App sends the configuration whenever an effect is selected,
         // including reselecting the current effect to refresh its group context.
-        send(forceParameterUpdate = true, effectSelection = true)
+        send(effectSelection = true)
     }
 
     private fun buildEffectCards() {
-        val container = root.findViewById<LinearLayout>(9004)
+        val container = root.findViewById<LinearLayout>(R.id.matrix_effect_list)
         container.removeAllViews()
         specs.forEach { spec ->
             val item = LayoutInflater.from(requireContext()).inflate(R.layout.effect_item, container, false)
@@ -188,7 +194,8 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     }
 
     private fun rebuildControls(spec: Spec) {
-        val panel = root.findViewById<LinearLayout>(9010)
+        updateSpeedControl = null
+        val panel = root.findViewById<LinearLayout>(R.id.matrix_controls)
         panel.removeAllViews()
         panel.setPadding(0, 0, 0, 28)
 
@@ -202,7 +209,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
             addView(TextView(requireContext()).apply {
-                text = "${onlineMembers().size} Matrix member${if (onlineMembers().size == 1) "" else "s"}"
+                text = "${stripMembers().size} Matrix member${if (stripMembers().size == 1) "" else "s"}"
                 textSize = 12f
                 setTextColor(Color.LTGRAY)
                 setPadding(0, dp(4), 0, 0)
@@ -235,7 +242,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
                         setTextColor(Color.WHITE)
                         isChecked = randomEnabled
                         setPadding(0, 0, 0, 0)
-                        setOnCheckedChangeListener { _, checked -> randomEnabled = checked; send(forceParameterUpdate = true) }
+                        setOnCheckedChangeListener { _, checked -> randomEnabled = checked; send() }
                     }, LinearLayout.LayoutParams(-2, dp(44)))
                 }
                 colorBox.addView(titleRow, 0, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
@@ -286,14 +293,14 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
                 })
             }
             colorBox.addView(grid)
-            colorBox.addView(LinearLayout(requireContext()).apply { id = 9013; orientation = LinearLayout.VERTICAL }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 8 })
+            colorBox.addView(LinearLayout(requireContext()).apply { id = R.id.matrix_palette; orientation = LinearLayout.VERTICAL }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = 8 })
             panel.addView(colorBox, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 12 })
             renderInlineColorEditor(colorBox, spec.colors)
         }
 
         if (spec.speed || spec.brightness || spec.random) {
             val main = sectionBox("Main controls")
-            if (spec.speed) addStepSlider(main, "Speed", speed.progress, 0, 100, "") { speed.progress = it; speedValue.text = "Speed $it"; send() }
+            if (spec.speed) updateSpeedControl = addStepSlider(main, "Speed", speed.progress, 0, 100, "") { speed.progress = it; speedValue.text = "Speed $it"; send() }
             if (spec.id == 101 || spec.id == 105) addTapSync(main, spec.id)
             if (spec.brightness) addStepSlider(main, "Brightness", brightness.progress, 0, 255, "") { brightness.progress = it; brightnessValue.text = "Brightness $it"; send() }
             panel.addView(main, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 12 })
@@ -324,67 +331,30 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         }
 
         panel.addView(TextView(requireContext()).apply {
-            id = 9012
-            text = "Pixel IDs: ${onlineMembers().map { pixelId(it) }.sorted().joinToString()} / Count ${aPixelCount()}"
+            id = R.id.matrix_status
+            text = "Pixel IDs: ${stripMembers().map { pixelId(it) }.sorted().joinToString()} / Count ${aPixelCount()}"
             setTextColor(Color.LTGRAY); textSize = 11f; setPadding(4, 10, 4, 10)
         })
 
         root.post { (root.parent as? ScrollView)?.smoothScrollTo(0, 0) }
     }
 
-    private fun aPixelCount(): Int = onlineMembers().size.coerceAtLeast(1)
+    private fun aPixelCount(): Int = stripMembers().map { it.PixelID }.distinct().size.coerceAtLeast(1)
 
     private fun addTapSync(container: LinearLayout, matrixEffectId: Int) {
-        val tapTimes = ArrayList<Long>()
-        val button = Button(requireContext()).apply {
-            text = "Tap Sync"
-            isAllCaps = false
+        val control = TapSyncControl(requireContext(), matrixEffectId) { reading ->
+            speed.progress = reading.speed
+            speedValue.text = "Speed ${reading.speed}"
+            updateSpeedControl?.invoke(reading.speed)
+            send()
         }
-        val bpmLabel = TextView(requireContext()).apply {
-            text = "BPM —"
-            textSize = 13f
-            setTextColor(Color.LTGRAY)
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val row = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(button, LinearLayout.LayoutParams(-2, dp(44)))
-            addView(bpmLabel, LinearLayout.LayoutParams(-2, dp(44)).apply { leftMargin = dp(12) })
-        }
-        container.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+        container.addView(control, LinearLayout.LayoutParams(-1, -2).apply {
             topMargin = dp(2)
             bottomMargin = dp(6)
         })
-
-        button.setOnClickListener {
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (tapTimes.isNotEmpty() && now - tapTimes.last() > 2000L) tapTimes.clear()
-            tapTimes.add(now)
-            if (tapTimes.size > 5) tapTimes.removeAt(0)
-            button.alpha = 0.55f
-            button.postDelayed({ button.alpha = 1f }, 120L)
-            if (tapTimes.size < 2) return@setOnClickListener
-
-            val intervals = tapTimes.zipWithNext { first, second -> second - first }.takeLast(4)
-            val averageInterval = intervals.average()
-            if (averageInterval <= 0.0) return@setOnClickListener
-            val bpm = (60000.0 / averageInterval).coerceIn(1.0, 200.0)
-            val beatMs = 60000.0 / bpm
-            val syncedSpeed = when (matrixEffectId) {
-                101 -> ((900.0 - beatMs) / 7.0).roundToInt()
-                105 -> ((650.0 - beatMs) / 6.1).roundToInt()
-                else -> return@setOnClickListener
-            }.coerceIn(0, 100)
-
-            bpmLabel.text = "BPM \${bpm.roundToInt()}"
-            speed.progress = syncedSpeed
-            speedValue.text = "Speed $syncedSpeed"
-            send()
-        }
     }
 
-    private fun addStepSlider(container: LinearLayout, label: String, value: Int, minValue: Int, maxValue: Int, suffix: String, onChange: (Int) -> Unit) {
+    private fun addStepSlider(container: LinearLayout, label: String, value: Int, minValue: Int, maxValue: Int, suffix: String, onChange: (Int) -> Unit): (Int) -> Unit {
         val labelRow=LinearLayout(requireContext()).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         labelRow.addView(TextView(requireContext()).apply{text=label;textSize=15f;setTextColor(Color.WHITE);setTypeface(typeface,android.graphics.Typeface.BOLD)},LinearLayout.LayoutParams(0,dp(32),1f))
         val out=TextView(requireContext()).apply{text="$value$suffix";textSize=14f;setTextColor(Color.WHITE);gravity=Gravity.CENTER_VERTICAL or Gravity.END}
@@ -400,6 +370,11 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         plus.setOnClickListener{applyValue(slider.value.toInt()+1)}
         slider.addOnChangeListener{_,v,fromUser->out.text="${v.toInt()}$suffix";if(fromUser)onChange(v.toInt())}
         container.addView(bar,LinearLayout.LayoutParams(-1,dp(35)).apply{bottomMargin=dp(12)})
+        return { newValue ->
+            val n = newValue.coerceIn(minValue, maxValue)
+            slider.value = n.toFloat()
+            out.text = "$n$suffix"
+        }
     }
 
     private fun spinnerRow(label: String, options: List<String>, selected: Int, onChange: (Int) -> Unit): LinearLayout = LinearLayout(requireContext()).apply {
@@ -628,7 +603,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
     }
 
     private fun renderInlineColorEditor(panel: LinearLayout, count: Int) {
-        val host = panel.findViewById<LinearLayout>(9013) ?: return
+        val host = panel.findViewById<LinearLayout>(R.id.matrix_palette) ?: return
         host.removeAllViews()
         host.addView(TextView(requireContext()).apply {
             text = "Current Color"
@@ -757,21 +732,12 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         return true
     }
 
-    private fun onlineMembers(): List<HardwareGroupItem> {
-        val a = requireActivity() as ControllerActivity
-        val membersByPixelId = a.getControllerVirtualStripSnapshot()
-            .filter { it.PixelID in 0..255 }
-            .groupBy { it.PixelID }
-        val online = ArrayList<HardwareGroupItem>()
-        for (pixelId in 0..255) {
-            val bucket = membersByPixelId[pixelId].orEmpty()
-            if (bucket.isEmpty()) break
-            // Multiple MobileD may share a PixelID. Keep every online device
-            // at that position, matching the PC App's virtual strip snapshot.
-            online.addAll(bucket)
-        }
-        return online
-    }
+    // Freeze the selected strip until another effect selection. Discovery may
+    // change reachability or IP without changing positions or PixelCount.
+    private fun stripMembers(): List<HardwareGroupItem> =
+        DeviceRoutingPolicy.consecutiveMembers(
+            (requireActivity() as ControllerActivity).getControllerVirtualStripSnapshot()
+        ) { it.PixelID }
 
     private fun pixelId(item: HardwareGroupItem): Int = item.PixelID
 
@@ -780,10 +746,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         return group.GUniverse.takeIf { if (group.allDevices) it == 32000 else it in 32010..35000 }
     }
 
-    private fun send(
-        forceParameterUpdate: Boolean = false,
-        effectSelection: Boolean = false
-    ) {
+    private fun send(effectSelection: Boolean = false) {
         if (::speed.isInitialized && ::brightness.isInitialized) saveRuntimeConfig()
         val a = requireActivity() as ControllerActivity
         if (!a.canOpenDistributedEffects("Matrix")) return
@@ -791,15 +754,14 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             Toast.makeText(requireContext(), "Matrix is available for groups only.", Toast.LENGTH_LONG).show()
             return
         }
-        val items = onlineMembers()
+        val items = stripMembers()
         if (items.isEmpty()) {
             Toast.makeText(requireContext(), "No reachable MobileD in the Matrix strip.", Toast.LENGTH_LONG).show()
             return
         }
 
-        // Only devices reachable in the controller selection snapshot take
-        // part in routing validation and this command burst. Offline inventory
-        // rows remain stored but cannot block an active All Devices group.
+        // Validate the captured strip, preserving its size when a Slave goes
+        // offline. Resolve current reachability and IP only for transmission.
         val allGroupItems = items
         val ids = allGroupItems.map { pixelId(it) }.distinct().sorted()
         val masters = allGroupItems.filter { it.GState.equals("M", ignoreCase = true) }
@@ -810,6 +772,14 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         if (pixelId(masters.first()) != 0) {
             Toast.makeText(requireContext(), "Matrix Master must have Pixel ID 0.", Toast.LENGTH_LONG).show()
             return
+        }
+        val master = masters.first().hardwareDevice
+        if (master == null || a.currentControllerDeviceIp(master) == null) {
+            Toast.makeText(requireContext(), "Matrix Master is offline.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val reachableItems = items.filter { item ->
+            item.hardwareDevice?.let { a.currentControllerDeviceIp(it) != null } == true
         }
         val uniqueIds = ids.distinct()
         if (uniqueIds.isEmpty() || uniqueIds.first() != 0 ||
@@ -839,7 +809,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         // Route parameter-only updates to the Master only when every online
         // member's latest Discovery confirms this effect and its full group
         // addressing. A user selection always configures the whole group.
-        val sameMatrixAddressing = items.all { item ->
+        val sameMatrixAddressing = reachableItems.all { item ->
             val d = item.hardwareDevice ?: return@all false
             val discovery = runCatching { JSONObject(d.deviceFrame.ifBlank { "{}" }) }.getOrNull()
                 ?: return@all false
@@ -855,8 +825,9 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         val masterOnly = !effectSelection && sameMatrixAddressing
 
 
-        items.forEach { item ->
+        reachableItems.forEach { item ->
             val d = item.hardwareDevice ?: return@forEach
+            val currentIp = a.currentControllerDeviceIp(d) ?: return@forEach
             val discovery = JSONObject(d.deviceFrame.ifBlank { "{}" })
             if (!discovery.has("Command")) return@forEach
             val role = if (item.GState.equals("M", ignoreCase = true)) "M" else "S"
@@ -888,17 +859,14 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
             }.toString()
 
             if (masterOnly && !item.GState.equals("M", ignoreCase = true)) return@forEach
-            // A direct Random toggle must be transmitted even if the cached command frame matches.
-            if (!forceParameterUpdate && d.activeCommandFrame == payload) return@forEach
-
             UdpClient.getClient(requireContext()).writeCommandString(
                 payload,
-                d.ip ?: return@forEach
+                currentIp
             )
             d.rememberSentCommand(payload)
         }
 
-        root.findViewById<TextView>(9012)?.text =
+        root.findViewById<TextView>(R.id.matrix_status)?.text =
             "Pixel IDs: ${items.map { pixelId(it) }.joinToString()} / Count $pixelCount"
         syncPreview()
     }
@@ -914,7 +882,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         preview.onOff2 = onOff2
         val activeCount = (0 until spec.colors.coerceAtMost(10)).takeWhile { colorSaved[it] }.size
         preview.colors = colors.take(activeCount).map { it.copyOf() }
-        preview.pixelCount = onlineMembers().size.coerceAtLeast(1)
+        preview.pixelCount = aPixelCount().coerceAtMost(20)
         preview.startAnimation()
         preview.invalidate()
     }
@@ -1090,13 +1058,13 @@ class MatrixBinding private constructor(private val rootView: View) : androidx.v
         fun inflate(inflater: LayoutInflater, container: ViewGroup?, attach: Boolean = false): MatrixBinding {
             val ctx=inflater.context
             val scroll=ScrollView(ctx).apply{isFillViewport=true;clipToPadding=false}
-            val body=LinearLayout(ctx).apply{id=9000;orientation=LinearLayout.VERTICAL;setPadding(14,12,14,28)}
+            val body=LinearLayout(ctx).apply{id=R.id.matrix_root;orientation=LinearLayout.VERTICAL;setPadding(14,12,14,28)}
             scroll.addView(body)
-            body.addView(Button(ctx).apply{id=9008;text="‹  Back to Matrix";visibility=View.GONE},LinearLayout.LayoutParams(-1,46).apply{bottomMargin=8})
-            body.addView(TextView(ctx).apply{id=9001;text="";visibility=View.GONE},LinearLayout.LayoutParams(-1,1))
-            body.addView(LinearLayout(ctx).apply{id=9004;orientation=LinearLayout.VERTICAL},LinearLayout.LayoutParams(-1,-2))
-            body.addView(PixelPreview(ctx).apply{id=9007;visibility=View.GONE},LinearLayout.LayoutParams(-1,76))
-            body.addView(LinearLayout(ctx).apply{id=9010;orientation=LinearLayout.VERTICAL},LinearLayout.LayoutParams(-1,-2))
+            body.addView(Button(ctx).apply{id=R.id.matrix_back;text="‹  Back to Matrix";visibility=View.GONE},LinearLayout.LayoutParams(-1,46).apply{bottomMargin=8})
+            body.addView(TextView(ctx).apply{id=R.id.matrix_title;text="";visibility=View.GONE},LinearLayout.LayoutParams(-1,1))
+            body.addView(LinearLayout(ctx).apply{id=R.id.matrix_effect_list;orientation=LinearLayout.VERTICAL},LinearLayout.LayoutParams(-1,-2))
+            body.addView(PixelPreview(ctx).apply{id=R.id.matrix_preview;visibility=View.GONE},LinearLayout.LayoutParams(-1,76))
+            body.addView(LinearLayout(ctx).apply{id=R.id.matrix_controls;orientation=LinearLayout.VERTICAL},LinearLayout.LayoutParams(-1,-2))
             return MatrixBinding(scroll)
         }
     }
