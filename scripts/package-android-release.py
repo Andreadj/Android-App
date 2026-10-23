@@ -20,12 +20,13 @@ import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
 
-VERSION = '2.0.12'
-VERSION_CODE = 25
+VERSION = '2.0.14'
+VERSION_CODE = 27
 APPLICATION_ID = 'com.mobiled.android.test'
 EXPECTED_TESTS = {
     'com.mobiled.android.ui.controller.MusicOutputTest': 15,
     'com.mobiled.android.DeviceRoutingPolicyTest': 3,
+    'com.mobiled.android.LegacyGroupRoutingTest': 10,
     'com.mobiled.android.DiscoveryCommandRoutesTest': 3,
     'com.mobiled.android.ExampleUnitTest': 1,
     'com.mobiled.android.GroupSelectionLifecycleTest': 3,
@@ -252,6 +253,15 @@ def package_release(sdk_root):
         about_bytes = archive.read('assets/aboutus.html')
     require(about_bytes == project_file('app/src/main/assets/aboutus.html').read_bytes(),
             'Packaged About page differs from the current source')
+    information_assets = []
+    with ZipFile(apk_source) as archive:
+        for name in ('aboutus.html', 'help.html', 'privacy.html'):
+            relative = 'app/src/main/assets/' + name
+            packaged = archive.read('assets/' + name)
+            require(packaged == project_file(relative).read_bytes(),
+                    'Packaged information page differs from source: ' + name)
+            information_assets.append({'asset': 'assets/' + name, 'matches_current_source': True,
+                                       'sha256': sha256(packaged).hexdigest()})
     about_text = about_bytes.decode('utf-8')
     require(all(term in about_text for term in ('{{APP_VERSION}}', 'MobileD &mdash; 20 W',
                                                 'MobileD XL &mdash; 40 W', '46.1', '3.5 Ah')),
@@ -325,7 +335,7 @@ def package_release(sdk_root):
         manual_controller_verified = installed.get('physical_controller_interaction_tested') is True
         runtime.update(installed=True, launch_verified=True,
                        physical_phone_tests_run=manual_controller_verified,
-                       manual_controller_open_verified=manual_controller_verified,
+                       manual_controller_interaction_verified=manual_controller_verified,
                        installation_report='reports/device-installation.json')
         installation_note = (f"APK {VERSION} installata con aggiornamento sul telefono {installed['device_model']}; "
                              'avvio e versione verificati. Non sono stati eseguiti test funzionali del Tap Sync sul telefono, '
@@ -341,7 +351,8 @@ def package_release(sdk_root):
                            controller_regression_physical_device=controller_regression.get('physical_device', {}))
             regression_targets += ' e telefono Android fisico'
         if manual_controller_verified:
-            installation_note += " Apertura della luce precedentemente in crash confermata dall'utente sul telefono con la release installata."
+            installation_note += (" Prova manuale sul telefono confermata dall'utente: "
+                                  + installed.get('manual_controller_check', {}).get('scope', 'controller') + ".")
         installation_note += (f" Test strumentali Controller: {controller_regression['tests']} passati, "
                               f'0 failure, eseguiti su {regression_targets} con variante debug degli stessi '
                               'sorgenti della release; report in `reports/controller-regression.json`.')
@@ -350,7 +361,7 @@ def package_release(sdk_root):
         'build': {'status': 'passed', 'log': 'reports/final-build.log',
                   'tasks': [':app:testDebugUnitTest', ':app:assembleRelease', ':app:lintDebug']},
         'apk': {**apk_metadata, **apk_record}, 'jvm_tests': tests, 'lint': lint,
-        'about': about_verification,
+        'about': about_verification, 'information_assets': information_assets,
         'source_snapshot': {'captured_at': source_snapshot['captured_at'], 'files': len(source_snapshot['files']),
                             'source_tree_sha256': source_snapshot['source_tree_sha256'],
                             'report': 'reports/source-files.json', 'matches_current_sources': True},
@@ -366,13 +377,28 @@ def package_release(sdk_root):
         'integrity': {'algorithm': 'SHA-256', 'manifest': 'release-manifest.json', 'checksums': 'SHA256SUMS.txt',
                       'self_hash_policy': 'Manifest lists payload files; checksums also list the manifest; the checksum file excludes itself.'},
     }
+    color_ui_path = ALIGNMENT / 'color-presets-ui.json'
+    if color_ui_path.exists():
+        color_ui = read_json(color_ui_path)
+        require(color_ui.get('version_name') == VERSION
+                and color_ui.get('version_code') == VERSION_CODE
+                and color_ui.get('source_tree_sha256') == source_snapshot['source_tree_sha256'],
+                'Color UI verification refers to another version/source tree')
+        require(color_ui.get('rows') == 2 and color_ui.get('columns') == 5
+                and len(color_ui.get('slots', [])) == 10
+                and all(color_ui.get(key) is True for key in (
+                    'all_slots_visible', 'slot_10_save_and_recall_verified',
+                    'slot_10_persists_after_relaunch', 'first_five_values_unchanged')),
+                'Color preset layout or persistence verification is incomplete')
+        copy_report(color_ui_path, 'color-presets-ui.json')
+        report['color_presets_ui'] = color_ui
     write_json(DIST / 'build-verification.json', report)
     validation = f'''# MobileD Android {VERSION} — Verifica della consegna
 
 APK release firmata: `MobileD_Android_{VERSION}.apk`, applicationId `{APPLICATION_ID}`, versionCode {VERSION_CODE}.
 
 - Build finale Gradle: riuscita; log in `reports/final-build.log`.
-- Test JVM: {tests['tests']} passati, 0 failure/error, 0 saltati; {tests['suites']['com.mobiled.android.ui.controller.MusicOutputTest']} Music, {tests['suites']['com.mobiled.android.DeviceRoutingPolicyTest'] + tests['suites']['com.mobiled.android.DiscoveryCommandRoutesTest']} routing, {tests['suites']['com.mobiled.android.GroupSelectionLifecycleTest']} Discovery/selezione gruppo, {tests['suites']['com.mobiled.android.ui.controller.TapTempoTest']} Tap Sync e {tests['suites']['com.mobiled.android.ExampleUnitTest']} test esistente.
+- Test JVM: {tests['tests']} passati, 0 failure/error, 0 saltati; {tests['suites']['com.mobiled.android.ui.controller.MusicOutputTest']} Music, {tests['suites']['com.mobiled.android.DeviceRoutingPolicyTest'] + tests['suites']['com.mobiled.android.DiscoveryCommandRoutesTest'] + tests['suites']['com.mobiled.android.LegacyGroupRoutingTest']} routing, {tests['suites']['com.mobiled.android.GroupSelectionLifecycleTest']} Discovery/selezione gruppo, {tests['suites']['com.mobiled.android.ui.controller.TapTempoTest']} Tap Sync e {tests['suites']['com.mobiled.android.ExampleUnitTest']} test esistente.
 - About: asset nel pacchetto identico ai sorgenti, versione automatica e schede MobileD 20 W / MobileD XL 40 W verificate.
 - Firma APK: verificata con apksigner SDK 34.0.0; metadati, permessi audio/foreground service, servizio Music e risorse icona presenti nell'APK.
 - Lint debug, eseguito insieme alla build release: `{lint['status']}`, {lint['errors']} errori/fatal, {lint['warnings']} warning; nessuna baseline usata per ignorare errori.

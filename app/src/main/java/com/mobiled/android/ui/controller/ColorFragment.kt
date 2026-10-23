@@ -59,26 +59,11 @@ class ColorFragment : BaseFragment<FragmentColorBinding>() {
         viewBinding.viewWBPercent.setText("${Math.round(viewBinding.viewWhiteBrightnessPart.viewSlider.value)}%")
 
 
-        viewBinding.viewColorBox1.viewRoot.setOnClickListener(toastMessage)
-        viewBinding.viewColorBox1.viewRoot.setOnLongClickListener(saveColorListener)
-        viewBinding.viewColorBox1.viewRoot.setTag("viewColor1")
-
-        viewBinding.viewColorBox2.viewRoot.setOnClickListener(toastMessage)
-        viewBinding.viewColorBox2.viewRoot.setOnLongClickListener(saveColorListener)
-        viewBinding.viewColorBox2.viewRoot.setTag("viewColor2")
-
-        viewBinding.viewColorBox3.viewRoot.setOnClickListener(toastMessage)
-        viewBinding.viewColorBox3.viewRoot.setOnLongClickListener(saveColorListener)
-        viewBinding.viewColorBox3.viewRoot.setTag("viewColor3")
-
-        viewBinding.viewColorBox4.viewRoot.setOnClickListener(toastMessage)
-        viewBinding.viewColorBox4.viewRoot.setOnLongClickListener(saveColorListener)
-        viewBinding.viewColorBox4.viewRoot.setTag("viewColor4")
-
-        viewBinding.viewColorBox5.viewRoot.setOnClickListener(toastMessage)
-        viewBinding.viewColorBox5.viewRoot.setOnLongClickListener(saveColorListener)
-        viewBinding.viewColorBox5.viewRoot.setTag("viewColor5")
-
+        colorSlots().forEachIndexed { index, slot ->
+            slot.viewRoot.tag = "viewColor${index + 1}"
+            slot.viewRoot.contentDescription = "Color preset ${index + 1}"
+            slot.viewRoot.setOnLongClickListener(saveColorListener)
+        }
 
         bindColorStorageUI()
 
@@ -296,152 +281,32 @@ class ColorFragment : BaseFragment<FragmentColorBinding>() {
         return@OnLongClickListener true
     }
 
+    private fun colorSlots() = listOf(
+        viewBinding.viewColorBox1, viewBinding.viewColorBox2,
+        viewBinding.viewColorBox3, viewBinding.viewColorBox4,
+        viewBinding.viewColorBox5, viewBinding.viewColorBox6,
+        viewBinding.viewColorBox7, viewBinding.viewColorBox8,
+        viewBinding.viewColorBox9, viewBinding.viewColorBox10
+    )
+
     private fun bindColorStorageUI() {
-        var keyStorage = KeyStorage.getKeyStorage(context = requireContext())
-        var data1 = if (!keyStorage.getStringValue("viewColor1").isNullOrEmpty()) {
-            keyStorage.getStringValue("viewColor1").split(",").stream().mapToInt { num ->
-                try {
-                    num.toInt()
-                } catch (ignore: Exception) {
-                    255
-                }
-            }.toArray()
-        } else IntArray(0)
-        var data2 = if (!keyStorage.getStringValue("viewColor2").isNullOrEmpty()) {
-            keyStorage.getStringValue("viewColor2").split(",").stream().mapToInt { num ->
-                try {
-                    num.toInt()
-                } catch (ignore: Exception) {
-                    255
-                }
-            }.toArray()
-        } else IntArray(0)
-        var data3 = if (!keyStorage.getStringValue("viewColor3").isNullOrEmpty()) {
-            keyStorage.getStringValue("viewColor3").split(",").stream().mapToInt { num ->
-                try {
-                    num.toInt()
-                } catch (ignore: Exception) {
-                    255
-                }
-            }.toArray()
-        } else IntArray(0)
-        var data4 = if (!keyStorage.getStringValue("viewColor4").isNullOrEmpty()) {
-            keyStorage.getStringValue("viewColor4").split(",").stream().mapToInt { num ->
-                try {
-                    num.toInt()
-                } catch (ignore: Exception) {
-                    100
-                }
-            }.toArray()
-        } else IntArray(0)
-        var data5 = if (!keyStorage.getStringValue("viewColor5").isNullOrEmpty()) {
-            keyStorage.getStringValue("viewColor5").split(",").stream().mapToInt { num ->
-                try {
-                    num.toInt()
-                } catch (ignore: Exception) {
-                    100
-                }
-            }.toArray()
-        } else IntArray(0)
-        viewBinding.viewColorBox1.viewColor.background =
-            GeneralUtil.buildColorStoreBackground(data1, 15)
-        viewBinding.viewColorBox2.viewColor.background =
-            GeneralUtil.buildColorStoreBackground(data2, 15)
-        viewBinding.viewColorBox3.viewColor.background =
-            GeneralUtil.buildColorStoreBackground(data3, 15)
-        viewBinding.viewColorBox4.viewColor.background =
-            GeneralUtil.buildColorStoreBackground(data4, 15)
-        viewBinding.viewColorBox5.viewColor.background =
-            GeneralUtil.buildColorStoreBackground(data5, 15)
-        (viewBinding.viewColorBox1.viewColorBrightness).text = ""
-        (viewBinding.viewColorBox2.viewColorBrightness).text = ""
-        (viewBinding.viewColorBox3.viewColorBrightness).text = ""
-        (viewBinding.viewColorBox4.viewColorBrightness).text = ""
-        (viewBinding.viewColorBox5.viewColorBrightness).text = ""
-
-        viewBinding.viewColorBox1.viewPlus.show()
-        viewBinding.viewColorBox2.viewPlus.show()
-        viewBinding.viewColorBox3.viewPlus.show()
-        viewBinding.viewColorBox4.viewPlus.show()
-        viewBinding.viewColorBox5.viewPlus.show()
-
-        if (data1.size > 5) {
-            viewBinding.viewColorBox1.viewPlus.hide()
-            (viewBinding.viewColorBox1.viewColorBrightness).text = "${data1[4]}%"
-
-            viewBinding.viewColorBox1.viewRoot.setOnClickListener {
-                keyStorage.getStringValue("${it.tag}").split(",").stream().mapToInt { num ->
-                    try {
-                        num.toInt()
-                    } catch (ignore: Exception) {
-                        100
-                    }
-                }.toArray().let {
-                    extractStorageColor(it)
-                }
-            }
-        }
-
-        if (data2.size > 5) {
-            viewBinding.viewColorBox2.viewPlus.hide()
-            (viewBinding.viewColorBox2.viewColorBrightness).text = "${data2[4]}%"
-
-            viewBinding.viewColorBox2.viewRoot.setOnClickListener {
-                keyStorage.getStringValue("${it.tag}").split(",").stream().mapToInt { num ->
-                    try {
-                        num.toInt()
-                    } catch (ignore: Exception) {
-                        100
-                    }
-                }.toArray().let {
-                    extractStorageColor(it)
-                }
-            }
-        }
-        if (data3.size > 5) {
-            viewBinding.viewColorBox3.viewPlus.hide()
-            (viewBinding.viewColorBox3.viewColorBrightness).text = "${data3[4]}%"
-            viewBinding.viewColorBox3.viewRoot.setOnClickListener {
-                keyStorage.getStringValue("${it.tag}").split(",").stream().mapToInt { num ->
-                    try {
-                        num.toInt()
-                    } catch (ignore: Exception) {
-                        100
-                    }
-                }.toArray().let {
-                    extractStorageColor(it)
-                }
-            }
-        }
-        if (data4.size > 5) {
-            viewBinding.viewColorBox4.viewPlus.hide()
-            (viewBinding.viewColorBox4.viewColorBrightness).text = "${data4[4]}%"
-
-            viewBinding.viewColorBox4.viewRoot.setOnClickListener {
-                keyStorage.getStringValue("${it.tag}").split(",").stream().mapToInt { num ->
-                    try {
-                        num.toInt()
-                    } catch (ignore: Exception) {
-                        100
-                    }
-                }.toArray().let {
-                    extractStorageColor(it)
-                }
-            }
-        }
-        if (data5.size > 5) {
-            viewBinding.viewColorBox5.viewPlus.hide()
-            (viewBinding.viewColorBox5.viewColorBrightness).text = "${data5[4]}%"
-
-            viewBinding.viewColorBox5.viewRoot.setOnClickListener {
-                keyStorage.getStringValue("${it.tag}").split(",").stream().mapToInt { num ->
-                    try {
-                        num.toInt()
-                    } catch (ignore: Exception) {
-                        100
-                    }
-                }.toArray().let {
-                    extractStorageColor(it)
+        val keyStorage = KeyStorage.getKeyStorage(context = requireContext())
+        colorSlots().forEach { slot ->
+            val key = slot.viewRoot.tag.toString()
+            val saved = keyStorage.getStringValue(key)
+            val data = if (saved.isNullOrEmpty()) IntArray(0) else
+                saved.split(",").map { it.toIntOrNull() ?: 100 }.toIntArray()
+            slot.viewColor.background = GeneralUtil.buildColorStoreBackground(data, 15)
+            slot.viewColorBrightness.text = ""
+            slot.viewPlus.show()
+            slot.viewRoot.setOnClickListener(toastMessage)
+            if (data.size > 5) {
+                slot.viewPlus.hide()
+                slot.viewColorBrightness.text = "${data[4]}%"
+                slot.viewRoot.setOnClickListener {
+                    val current = keyStorage.getStringValue(key).split(",")
+                        .map { it.toIntOrNull() ?: 100 }.toIntArray()
+                    extractStorageColor(current)
                 }
             }
         }

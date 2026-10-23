@@ -16,12 +16,13 @@
     <li><strong>All Devices</strong> is the system group and uses GPort 8890.</li>
     <li>User-created groups use their configured GPort.</li>
     <li>Pixel ID defines the position used by distributed Matrix and Music effects and is independent from DMX addressing.</li>
-    <li>Multiple group members may use the same Pixel ID. Distributed effects use the consecutive Pixel-ID positions present in the group.</li>
+    <li>Multiple group members may use the same Pixel ID. Synchronized Legacy, Matrix and Music use consecutive Pixel IDs starting at 0 and stop before the first missing ID; every selected member sharing a participating ID is included.</li>
+    <li>Selecting a group keeps the members online at that moment. Commands use their current network address and skip members that are no longer reachable. Select the group again to include other members.</li>
 </ul>
 <h2>Controller</h2>
 <ul>
-    <li><strong>Color</strong> provides Hue, Color Brightness and White Brightness controls.</li>
-    <li><strong>Effects</strong> contains the legacy MobileD effects and their parameters.</li>
+    <li><strong>Color</strong> provides Hue, Color Brightness and White Brightness controls, plus ten saved-color slots arranged in two rows of five. Tap a saved slot to recall it; press and hold to save or overwrite it with the current color and both brightness values. The original five saved colors are retained when updating.</li>
+    <li><strong>Effects</strong> contains the legacy MobileD effects and their parameters. Without a configured Master, Legacy runs locally on all selected reachable members, even with missing, invalid or non-consecutive Pixel IDs. Master/Slave roles are not required.</li>
     <li><strong>Matrix</strong> is available for valid distributed groups and uses the configured Master/Slave routing.</li>
     <li><strong>Music</strong> is App-driven: the Android device captures playback audio, generates the virtual strip and transmits the resulting DMX/sACN data to the configured MobileD group.</li>
     <li>Discovery is the source of truth for the displayed device state.</li>
@@ -29,6 +30,7 @@
 <h2>Configuration</h2>
 <ul>
     <li>When editing a group, assign the required Pixel IDs and Master/Slave roles according to the selected function.</li>
+    <li>To synchronize Legacy, configure exactly one Master with Pixel ID 0. The Master must be selected and reachable; only consecutive Pixel IDs from 0 participate. A missing or invalid configured Master must be corrected before synchronized Legacy can start.</li>
     <li>For Matrix, exactly one Master is required and the Master must use Pixel ID 0.</li>
     <li>Music does not use Master/Slave. It uses the group's Pixel IDs and virtual strip routing.</li>
 </ul>
@@ -36,6 +38,7 @@
 <ul>
     <li>If a device is not responding, verify that it is powered, connected to a reachable network, and visible in Discovery.</li>
     <li>If a device has moved to another IP address, run the explicit discovery scan. The stable device identity prevents duplicate entries.</li>
+    <li>If synchronized Legacy cannot start, check that the configured Master has Pixel ID 0 and is selected and reachable. Select the group again after the Master returns online. To run unsynchronized Legacy, remove the configured Master; Pixel IDs are then optional.</li>
     <li>If Matrix or Music is unavailable, verify that the selected group has valid consecutive Pixel-ID positions starting at 0 and the required GUniverse configuration.</li>
     <li>If Music does not start, verify Android playback-capture authorization and that a reachable MobileD group is selected.</li>
 </ul>

@@ -13,6 +13,7 @@ import com.mobiled.android.R
 import com.mobiled.android.adapters.GeneralUtil
 import com.mobiled.android.base.comman.UdpClient
 import com.mobiled.android.base.comman.DeviceRoutingPolicy
+import com.mobiled.android.base.comman.LegacyGroupRouting
 import com.mobiled.android.base.model.HardwareDevice
 import com.mobiled.android.base.model.HardwareGroup
 import com.mobiled.android.base.model.HardwareGroupItem
@@ -40,6 +41,18 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         val ip: String,
         var frame: String
     )
+
+    private data class LegacyGroupTargets(
+        val masterIdentity: String?,
+        val targets: List<GroupCommandTarget>
+    ) {
+        val isSynchronized: Boolean get() = masterIdentity != null
+        fun roleFor(item: HardwareGroupItem): String = when {
+            !isSynchronized -> "X"
+            item.hardwareDevice?.ApName == masterIdentity -> "M"
+            else -> "S"
+        }
+    }
 
     // Freeze online membership and addressing when the group is selected.
     // Discovery changes delivery routes, never the selected members or slots.
@@ -711,14 +724,15 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = currentGroupEffectTargets()
-        if (snapshot.isEmpty()) return
+        val legacyGroup = currentLegacyGroupTargets() ?: return
+        val snapshot = legacyGroup.targets
 
         val currentEffect = currentControllerEffect()
         val effectSelection = GLights != -1 && GLights != currentEffect
-        val validMasterSlave = isValidLegacyMasterSlaveGroup()
-        val targets = if (!effectSelection && validMasterSlave) {
-            snapshot.filter { it.item.GState.equals("M", ignoreCase = true) }
+        val validMasterSlave = legacyGroup.isSynchronized
+        val contextConfigured = snapshot.all { legacyContextMatches(it, currentEffect, legacyGroup) }
+        val targets = if (!effectSelection && validMasterSlave && contextConfigured) {
+            snapshot.filter { it.item.hardwareDevice?.ApName == legacyGroup.masterIdentity }
         } else {
             snapshot
         }
@@ -748,13 +762,13 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
                 base,
                 effectId,
                 overrides,
-                if (validMasterSlave) target.item.GState else "X",
+                legacyGroup.roleFor(target.item),
                 if (group?.allDevices == true) "8890" else target.item.Gport,
                 if (validMasterSlave) group?.GUniverse else null
             ).put("Command", discovery.optInt("Command", 0)).toString()
 
             sendCommandToDevice(outgoing, hardwareDevice, target.ip,
-                reliable = effectSelection || !validMasterSlave)
+                reliable = effectSelection || !validMasterSlave || !contextConfigured)
         }
 
         if (effectSelection) controllerSelectionEffect = GLights
@@ -858,15 +872,13 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = currentGroupEffectTargets()
-        if (snapshot.isEmpty()) return
+        val legacyGroup = currentLegacyGroupTargets() ?: return
+        val snapshot = legacyGroup.targets
         val group = group ?: return
-        val validMasterSlave = isValidLegacyMasterSlaveGroup()
-        val sameEffect = snapshot.all {
-            discoveryFrame(it.item.hardwareDevice ?: return@all false).optInt("GLights", -1) == effectId
-        }
-        // Selecting the effect that is already active is only navigation to
-        // its settings page; opening the page must not transmit anything.
+        val validMasterSlave = legacyGroup.isSynchronized
+        val sameEffect = snapshot.all { legacyContextMatches(it, effectId, legacyGroup) }
+        // Only matching effect and routing state make selection navigation-only.
+        // A previous Slave or Master must receive the new local/group context.
         if (sameEffect) return
         val targets = snapshot
         if (targets.isEmpty()) return
@@ -882,7 +894,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
                 discovery,
                 effectId,
                 defaults,
-                if (validMasterSlave) target.item.GState else "X",
+                legacyGroup.roleFor(target.item),
                 if (group.allDevices) "8890" else target.item.Gport,
                 if (validMasterSlave) group.GUniverse else null
             ).put("Command", if (anyOn) 1 else 0).toString()
@@ -891,15 +903,34 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         controllerSelectionEffect = effectId
     }
 
-    private fun isValidLegacyMasterSlaveGroup(): Boolean {
-        val items = getControllerVirtualStripSnapshot()
-        if (items.isEmpty()) return false
-        val masters = items.count { it.GState.equals("M", ignoreCase = true) }
-        if (masters != 1) return false
-        return items.all {
-            it.GState.equals("M", ignoreCase = true) ||
-                it.GState.equals("S", ignoreCase = true)
+    private fun legacyContextMatches(
+        target: GroupCommandTarget,
+        effectId: Int,
+        legacyGroup: LegacyGroupTargets
+    ): Boolean {
+        val hardware = target.item.hardwareDevice ?: return false
+        val frame = discoveryFrame(hardware)
+        val expectedPort = if (group?.allDevices == true) "8890" else target.item.Gport
+        return frame.optInt("GLights", -1) == effectId &&
+            frame.optString("GState", "").equals(legacyGroup.roleFor(target.item), ignoreCase = true) &&
+            frame.optString("GPort", "") == expectedPort &&
+            (!legacyGroup.isSynchronized || frame.optInt("GUniverse", -1) == group?.GUniverse)
+    }
+
+    private fun currentLegacyGroupTargets(): LegacyGroupTargets? {
+        fun member(item: HardwareGroupItem) = LegacyGroupRouting.Member(
+            item.hardwareDevice?.ApName.orEmpty(), item.PixelID, item.GState)
+        val reachableTargets = currentGroupTargets()
+        val plan = LegacyGroupRouting.plan(
+            group?.groupItems.orEmpty().map(::member),
+            controllerSelectionSnapshot.orEmpty().map { member(it.item) },
+            reachableTargets.mapNotNull { it.item.hardwareDevice?.ApName }.toSet())
+        plan.failure?.let {
+            Toast.makeText(this, it.message, Toast.LENGTH_LONG).show()
+            return null
         }
+        val byIdentity = reachableTargets.associateBy { it.item.hardwareDevice?.ApName }
+        return LegacyGroupTargets(plan.masterIdentity, plan.participants.mapNotNull { byIdentity[it] })
     }
 
     private fun currentControllerEffect(): Int {
@@ -952,13 +983,6 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             if (!frame.has("Command")) return@mapNotNull null
             GroupCommandTarget(selected.item, ip, frame.toString())
         }.toMutableList()
-
-    // Filter the frozen strip before checking reachability, so an offline ID
-    // does not remove later valid IDs or admit an initially offline member.
-    private fun currentGroupEffectTargets(): MutableList<GroupCommandTarget> {
-        val selectedItems = getControllerVirtualStripSnapshot().toSet()
-        return currentGroupTargets().filter { it.item in selectedItems }.toMutableList()
-    }
 
     fun refreshControllerMatrixSelection(): List<HardwareGroupItem> {
         if (controllerVirtualStripSnapshot == null) {

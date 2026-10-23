@@ -1,7 +1,9 @@
 # MobileD Android — Riferimento funzionale
 
 **Revisione v1.8 — aggiornata il 23 ottobre 2026**
-App Android **2.0.11**, versionCode **24** · PC App **0.20.45**, riferimento **v8.6** · ESP-IDF **1.0.10** · Arduino **3.3.70**
+App Android **2.0.14**, versionCode **27** · PC App **0.20.46**, riferimento **v8.6** · ESP-IDF **1.0.10** · Arduino **3.3.70**
+
+Aggiornamento Color per Android 2.0.14: dieci slot di salvataggio su due righe da cinque. Gli esiti effettivi di build, test e installazione sono riportati separatamente nei report di consegna. La correzione Legacy già verificata nella 2.0.13 resta inclusa: senza Master configurato non si applicano vincoli PixelID.
 
 ## 1. Ambito e riferimenti
 
@@ -74,7 +76,9 @@ L'assegnazione del Master mette il dispositivo scelto online a PixelID 0 e conse
 
 **La selezione del gruppo cattura tutti i membri online in quel momento**, conservandone identità, PixelID e ruoli per Color, Legacy, Matrix e Music. Un membro offline alla selezione resta escluso anche se ritorna prima dell'avvio dell'effetto o condivide un ID già selezionato. Un membro selezionato che passa offline rimane nello snapshot. I cambi Discovery non ricalcolano i partecipanti: occorre selezionare esplicitamente di nuovo il gruppo. L'invio salta i membri selezionati non più raggiungibili e usa l'IP corrente al loro ritorno.
 
-Gli appartenenti a un gruppo possono avere ID non consecutivi e duplicati. Per **ogni effetto di gruppo, compresi Legacy, Matrix e tutti i sottotipi Music**, si usa soltanto il prefisso valido di PixelID distinti da 0 fino al primo ID mancante, derivato dallo snapshot di selezione. I membri dopo il primo vuoto o con ID non validi/non assegnati sono ignorati dall'effetto e non ne impediscono l'avvio. Color utilizza tutti i membri dello snapshot senza vincoli di consecutività.
+Gli appartenenti a un gruppo possono avere ID non consecutivi e duplicati. **Legacy senza Master configurato usa tutti i membri selezionati attualmente raggiungibili, in modalità locale X, senza vincoli sugli ID**: non servono ID 0, ID validi o ID consecutivi; eventuali ruoli S residui non richiedono sincronizzazione. Color e Power usano anch'essi la selezione completa.
+
+**Legacy con Master configurato, Matrix e tutti i sottotipi Music** usano soltanto il prefisso valido di PixelID distinti da 0 fino al primo ID mancante, derivato dallo snapshot di selezione. I membri dopo il primo vuoto o con ID non validi/non assegnati sono ignorati dal prefisso e non ne impediscono l'avvio. Tutti i membri con uno stesso ID partecipante restano destinatari. Per Legacy sincronizzato deve esserci un unico M con PixelID 0, incluso nella selezione e attualmente raggiungibile; un Master configurato con ID errato, escluso dalla selezione o offline richiede una segnalazione specifica e non attiva un ripiego locale. La presenza del Master si valuta sulla configurazione del gruppo, non soltanto sui destinatari online.
 
 Per esempio, gli ID `0,1,2,2,4,5` producono una strip di tre posizioni e quattro dispositivi partecipanti: entrambi i dispositivi ID 2 ricevono lo stesso pixel, mentre ID 4 e 5 restano esclusi. **Music può avviarsi con questo gruppo: non è necessario che tutti gli ID del gruppo siano consecutivi.** I duplicati non aumentano PixelCount. Anche il solo ID 0 basta per Music, senza Master; se manca ID 0 non esiste un prefisso valido. Matrix mantiene il requisito di un Master selezionato a ID 0, raggiungibile durante la configurazione dell'effetto.
 
@@ -86,13 +90,17 @@ Android e il contratto firmware supportano PixelID **0–1023** per Matrix e Mus
 
 ## 5. Comandi, potenza e Legacy
 
+La schermata **Color dispone di dieci slot di salvataggio, in due righe da cinque**. Un tocco richiama un colore salvato; una pressione prolungata salva il colore corrente o sovrascrive lo slot. I salvataggi comprendono colore, Color Brightness e White Brightness e persistono alla riapertura dell'App. I primi cinque slot mantengono i salvataggi precedenti all'aggiornamento; gli slot 6–10 aggiungono cinque memorie indipendenti. Questa modifica riguarda la schermata Color Android.
+
 ON/OFF copia la configurazione Discovery del singolo destinatario e cambia solo Command. Restano conservati colore, hue/Hue, luminosità, speed, famiglia, ruolo, gruppo, universo, pixel, palette e parametri disponibili. Il firmware accetta sia `hue` sia l'alias Discovery `Hue`. Uno stato locale in attesa di invio non sostituisce il Discovery ricevuto.
 
 La selezione Matrix preserva il Command di ciascun partecipante: un gruppo può quindi contenere contemporaneamente fari ON e OFF. L'ingresso in Music o il cambio del suo gruppo invia invece esplicitamente **Command=1**, con GLights=100. Il payload di selezione Music non aggiunge GState: il ruolo precedente può restare salvato, ma non controlla il runtime Music. Questa regola sostituisce la nota v1.7 secondo cui anche l'ingresso Music preservava lo stato OFF.
 
 Le successive azioni ON/OFF durante Music cambiano la potenza dei fari senza arrestare necessariamente la cattura dell'App. OFF nel firmware mantiene l'uscita nera; ON riattiva la configurazione Music e attende frame validi.
 
-Per Legacy distribuito, i comandi contengono GPort e GUniverse oltre ai campi dell'effetto. Il Master calcola il colore comune e lo distribuisce tramite sACN; gli Slave ricevono quel risultato. Legacy non crea una virtual strip. Breath e Heartbeat mantengono Speed e i campi colore quando cambia il solo parametro temporale.
+Legacy locale senza Master invia l'effetto e le modifiche dei parametri direttamente a tutti i membri selezionati raggiungibili con GState=X, anche quando gli ID sono mancanti, non validi o oltre un buco. Non richiede ruoli M/S.
+
+Per Legacy sincronizzato, un unico Master a PixelID 0 e i destinatari con ID consecutivi da 0 ricevono i comandi con GPort e GUniverse oltre ai campi dell'effetto. Il Master calcola il colore comune e lo distribuisce tramite sACN; gli Slave ricevono quel risultato. I duplicati restano destinatari e gli ID dopo il primo buco sono esclusi. Legacy non crea una virtual strip. Breath e Heartbeat mantengono Speed e i campi colore quando cambia il solo parametro temporale.
 
 FLASH/identificazione usa Command=2, è temporaneo e non diventa il nuovo stato di potenza. La selezione del campo PixelID di un dispositivo online con IP valido può inviare l'identificazione a quel singolo destinatario. Tap Sync resta disponibile negli effetti Matrix 101 e 105; Legacy Breath, Strobe e Heartbeat mantengono la regolazione Speed.
 
@@ -180,7 +188,7 @@ APK, documentazione e report Android restano nel progetto Android; i binari firm
 
 ## 11. About: versione App e modelli MobileD
 
-La schermata About è aggiornata per la versione 2.0.11. La dicitura della versione proviene da `BuildConfig.VERSION_NAME`, applicata al contenuto HTML al caricamento: non è un numero fisso da aggiornare separatamente dalla build. Il testo è in inglese, coerente con la schermata esistente, e mantiene crediti e contatti del prodotto.
+La schermata About mostra la versione della build installata, inclusa la 2.0.14 quando compilata e installata. La dicitura della versione proviene da `BuildConfig.VERSION_NAME`, applicata al contenuto HTML al caricamento: non è un numero fisso da aggiornare separatamente dalla build. Il testo è in inglese, coerente con la schermata esistente, e mantiene crediti e contatti del prodotto.
 
 Sono presenti due schede distinte per l'hardware:
 
@@ -215,5 +223,7 @@ Le prove fisiche da eseguire dopo la build sono:
 6. DMX OUT con fari esterni su più indirizzi dello stesso universo, incluso canale 512, su Matrix Master/Slave e ricevitori Music.
 7. Ingresso Primary DMX durante Music/Matrix, comandi App durante l'ingresso, ripristino automatico dell'ultimo stato ON o OFF al timeout.
 8. Persistenza di gruppo, universo e Master dopo riapertura e import/export; corrispondenza Tap Sync/flash sui fari.
+9. Legacy senza Master con ID mancanti, non validi o non consecutivi: avvio e parametri su tutti i membri selezionati raggiungibili, anche con ruoli S residui. Legacy con M a ID 0: prefisso e duplicati; M a ID errato, escluso o offline: segnalazione specifica senza ripiego locale.
+10. Color: dieci slot visibili su due righe da cinque; salvataggio e richiamo di ogni slot con luminosità colore/bianco, sovrascrittura, persistenza dopo riapertura e conservazione dei cinque salvataggi precedenti.
 
 La correzione dei sorgenti, una build riuscita e un test automatico sono evidenze diverse. Il report di consegna deve specificare quali sono state effettivamente ottenute; nessuna prova elettrica o su telefono viene dedotta dalla sola lettura di questo documento.

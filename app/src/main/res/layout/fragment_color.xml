@@ -112,6 +112,7 @@
             android:layout_height="@dimen/_20sdp" />
 
         <LinearLayout
+            android:id="@+id/colorPresetsRow1"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
@@ -122,7 +123,10 @@
 
             <include
                 android:id="@+id/viewColorBox1"
-                layout="@layout/color_box_item" />
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
 
             <Space
                 android:layout_width="@dimen/_5sdp"
@@ -130,7 +134,10 @@
 
             <include
                 android:id="@+id/viewColorBox2"
-                layout="@layout/color_box_item" />
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
 
             <Space
                 android:layout_width="@dimen/_5sdp"
@@ -138,7 +145,10 @@
 
             <include
                 android:id="@+id/viewColorBox3"
-                layout="@layout/color_box_item" />
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
 
             <Space
                 android:layout_width="@dimen/_5sdp"
@@ -146,7 +156,10 @@
 
             <include
                 android:id="@+id/viewColorBox4"
-                layout="@layout/color_box_item" />
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
 
             <Space
                 android:layout_width="@dimen/_5sdp"
@@ -154,7 +167,77 @@
 
             <include
                 android:id="@+id/viewColorBox5"
-                layout="@layout/color_box_item" />
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="@dimen/_5sdp"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/colorPresetsRow2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/_5sdp"
+            android:orientation="horizontal">
+
+            <Space
+                android:layout_width="@dimen/_5sdp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/viewColorBox6"
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="@dimen/_5sdp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/viewColorBox7"
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="@dimen/_5sdp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/viewColorBox8"
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="@dimen/_5sdp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/viewColorBox9"
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="@dimen/_5sdp"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/viewColorBox10"
+                layout="@layout/color_box_item"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
 
             <Space
                 android:layout_width="@dimen/_5sdp"

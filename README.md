@@ -2,13 +2,27 @@
 
 App Android nativa per controllo Color, Legacy, Matrix e Music dei dispositivi MobileD. Il progetto si può modificare e compilare da terminale; Android Studio è facoltativo.
 
-Versione corrente verificata: **2.0.12**, versionCode **25**. Corregge il crash all'apertura di luci con luminosità Matrix e i problemi collegati a preset, palette, ripristino del controller e listener di rete. About mostra automaticamente la versione da `BuildConfig.VERSION_NAME` e mantiene le schede MobileD 20 W e MobileD XL 40 W.
+Release corrente: **2.0.14**, versionCode **27**. Color offre dieci caselle di salvataggio su due righe da cinque, conservando i colori precedenti. Restano incluse le correzioni Legacy della 2.0.13 e del crash del controller della 2.0.12.
 
-La release del 23 ottobre 2026 supera **29 test JVM** e **16 test Android su emulatore API 34**. Il lint finale non riporta errori/fatal. Firma, metadati, permessi, servizio Music, icone e asset About identico ai sorgenti sono verificati.
+La release supera **39 test JVM** e **20 test Android su emulatore API 34**, incluse quattro prove Legacy con UDP reale su loopback. Build release, lint senza errori/fatal, firma, metadati e i tre asset del menu laterale sono verificati nei report di consegna.
 
-La release 2.0.12 è installata con aggiornamento sul telefono Xiaomi M2101K9AG / Android 13, mantenendo i dati dell'app. L'APK installata corrisponde byte per byte alla consegna e l'avvio a freddo è riuscito. L'utente ha confermato che la luce prima in crash ora si apre correttamente. La suite automatica sul telefono è stata bloccata dai permessi MIUI di avvio Activity in background; non è dichiarata superata. Le prove automatiche Android completate sono quelle nell'emulatore.
+La 2.0.14 è installata sul telefono Xiaomi M2101K9AG / Android 13 senza cancellazione dati; hash dell'APK, versione e avvio a freddo sono verificati. L'utente conferma le dieci caselle su due righe da cinque: «Sì, disposizione corretta». Nell'emulatore sono verificati il salvataggio e il richiamo dello slot 10, la persistenza dopo riapertura e la conservazione dei valori nei primi cinque slot. La conferma Legacy sui fari resta attribuita alla precedente 2.0.13; le prove automatiche Legacy passano anche nella 2.0.14.
 
-Il riferimento corrente è [MobileD_MobileApps_Functional_Reference_v1.8.md](MobileD_MobileApps_Functional_Reference_v1.8.md), disponibile anche in PDF. Versioni storiche e checkpoint mobile precedenti sono conservati in `docs/archive`.
+Il riferimento corrente è [MobileD_MobileApps_Functional_Reference_v1.8.md](MobileD_MobileApps_Functional_Reference_v1.8.md), disponibile anche in PDF. Include la correzione del contratto Legacy per Android 2.0.13 e PC 0.20.46 e la griglia Color di Android 2.0.14. Versioni storiche e checkpoint mobile precedenti sono conservati in `docs/archive`.
+
+## Color: dieci slot nella 2.0.14
+
+La schermata Color presenta dieci slot in due righe da cinque. Un tocco richiama un colore salvato; una pressione prolungata salva il colore corrente nello slot o lo sovrascrive. Ogni slot conserva il colore e i valori di Color Brightness e White Brightness. I cinque salvataggi esistenti mantengono la loro posizione, mentre i cinque slot aggiuntivi sono indipendenti.
+
+Help & Support è aggiornato alla nuova griglia. Terms and Conditions e About sono stati ricontrollati; About continua a usare `BuildConfig.VERSION_NAME`. Le verifiche sono registrate in `dist/build-verification.json`, `dist/Build_Validation.md` e `dist/reports/color-presets-ui.json`.
+
+## Correzione Legacy 2.0.13
+
+Senza Master configurato, Legacy funziona in locale su tutti i membri della selezione attualmente raggiungibili: non richiede ruoli M/S, ID 0, ID validi o ID consecutivi. I comandi usano il ruolo diretto X, anche se nel gruppo sono rimasti ruoli S.
+
+Se è configurato un Master, Legacy usa la sincronizzazione: deve esserci un unico M con ID 0, selezionato e raggiungibile; partecipano soltanto gli ID consecutivi da 0 fino al primo buco, inclusi tutti i duplicati. Un Master configurato male, non selezionato o non raggiungibile richiede una segnalazione specifica e non deve trasformare il gruppo in locale. Matrix e Music mantengono le rispettive regole.
+
+Help & Support descrive entrambe le modalità. Terms and Conditions e About sono stati ricontrollati; About continua a ricavare la versione da `BuildConfig.VERSION_NAME`. Gli esiti della 2.0.13 sono archiviati localmente prima del confezionamento della 2.0.14; i report in `dist` riguardano la release corrente.
 
 ## Build locale
 
@@ -47,16 +61,16 @@ Il Master viene salvato come unico M anche quando altri membri sono offline; le 
 
 Tap Sync degli effetti Matrix 101 e 105 usa il pulsante con LED nello stile PC e aggiorna BPM, slider e valore Speed visibili. Il flash dura 120 ms al tocco; non è un metronomo automatico. Sono passati 4 test Tap Tempo, 15 Music, 6 routing, 3 Discovery/selezione gruppo e 1 test esistente, per 29 test JVM complessivi della 2.0.12.
 
-APK: `dist/MobileD_Android_2.0.12.apk`; SHA-256 `685de51b9fa2c52b8c66a055a2b5a25992bd0e447a14d5d7cd8cd05a41303992`. Lo snapshot contiene 322 file con impronta `892d3969620baaf2dc6df2b40c4d76aa8795ae9c2dbcc24e5f6dc86608a8539d`, corrispondenti agli input della build.
+Storico 2.0.12: APK `MobileD_Android_2.0.12.apk`; SHA-256 `685de51b9fa2c52b8c66a055a2b5a25992bd0e447a14d5d7cd8cd05a41303992`. Lo snapshot contiene 322 file con impronta `892d3969620baaf2dc6df2b40c4d76aa8795ae9c2dbcc24e5f6dc86608a8539d`, corrispondenti agli input della build.
 
 About è verificata nell'asset confezionato; restano da verificare la sua resa visiva sul telefono, Tap Sync fisico, cattura audio reale e comportamento UDP/DMX dei fari. Installazione e avvio non sostituiscono queste prove funzionali.
 
-Discovery porta una luce offline soltanto dopo più di 5000 ms senza rilevamenti validi; il primo rilevamento la riporta online. La selezione del gruppo congela i membri online e i loro ID. Color e Power usano questa selezione; Legacy, Mic, Matrix e Music usano il prefisso consecutivo da ID 0 fino al primo ID mancante. Gli ID duplicati sono ammessi e condividono una posizione. Music può partire anche se altri membri del gruppo hanno ID oltre un buco.
+Discovery porta una luce offline soltanto dopo più di 5000 ms senza rilevamenti validi; il primo rilevamento la riporta online. La selezione del gruppo congela i membri online e i loro ID. Color, Power e Legacy senza Master usano questa selezione completa; Legacy sincronizzato con Master, Matrix e Music usano il prefisso consecutivo da ID 0 fino al primo ID mancante. Gli ID duplicati sono ammessi e condividono una posizione. Music può partire anche se altri membri del gruppo hanno ID oltre un buco.
 
 ## Correzioni 2.0.12
 
 La regressione del 22 ottobre lasciava passare luminosità Matrix fino a 255 verso uno slider Colore con massimo 100. La UI ora converte correttamente in percentuale e mantiene intatto il valore del protocollo. Sono corretti anche trasporto della cache palette tra Activity, preset fuori intervallo, ripristino dei due slider, frammenti ripristinati e gestione dei listener di controller e righe Home.
 
-I dettagli della verifica sono in [Correzioni Android 2.0.12](dist/docs/Correzioni_Android_2.0.12.md). Il riferimento funzionale v1.8 resta la revisione storica del contratto: la sua intestazione 2.0.11 non indica la versione della consegna corrente.
+I dettagli della verifica sono in [Correzioni Android 2.0.12](dist/docs/Correzioni_Android_2.0.12.md). Il riferimento funzionale v1.8 è stato aggiornato per il contratto Legacy della 2.0.13; le prove della correzione del crash 2.0.12 restano distinte dalla nuova verifica.
 
-La regola di controllare e aggiornare anche Help & Support, Terms and Conditions e About a ogni modifica dell'app è registrata in [AGENTS.md](AGENTS.md). In questa release About mostra 2.0.12 automaticamente; gli altri contenuti del menu sono stati verificati e restano coerenti con le funzioni disponibili.
+La regola di controllare e aggiornare anche Help & Support, Terms and Conditions e About a ogni modifica dell'app è registrata in [AGENTS.md](AGENTS.md). Nella release verificata 2.0.12 About mostra la versione automaticamente. Per la 2.0.13 Help & Support è aggiornato alla distinzione fra Legacy locale e sincronizzato; la verifica degli asset confezionati va ripetuta sulla nuova APK.
