@@ -41,6 +41,17 @@ class HardwareGroupItem : Serializable {
     @Embedded
     var hardwareDevice: HardwareDevice? = null
 
+    /** Freeze addressing while retaining the device object for live Discovery/IPs. */
+    fun snapshotForSelection(): HardwareGroupItem = HardwareGroupItem().also {
+        it.gItemRowId = gItemRowId
+        it.groupId = groupId
+        it.Gport = Gport
+        it.GState = GState
+        it.PixelID = PixelID
+        it.selected = selected
+        it.hardwareDevice = hardwareDevice
+    }
+
     override fun toString(): String {
         return "HardwareGroupItem(gItemRowId=$gItemRowId, groupId=$groupId, selected=$selected, Gport=$Gport, GState=$GState, PixelID=$PixelID, hardwareDevice=$hardwareDevice)"
     }

@@ -1063,14 +1063,14 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         val group=a.group ?: run {
             Toast.makeText(requireContext(),"Music requires a group.",Toast.LENGTH_SHORT).show(); return false
         }
-        // Capture the current online selection explicitly. Its Pixel IDs remain
-        // fixed while streaming; temporary disconnects never renumber the strip.
+        // Use the strip captured when the group was selected. Starting or
+        // changing Music does not admit later arrivals or renumber offline IDs.
         val items=a.refreshControllerMusicSelection()
-        if(items.isEmpty()){
+        if(items.isEmpty() || a.getCurrentControllerMusicMembers().isEmpty()){
             Toast.makeText(requireContext(),"No reachable MobileD in this group.",Toast.LENGTH_SHORT).show(); return false
         }
         if(!validMusicGroup(items)){
-            Toast.makeText(requireContext(),"Music requires consecutive Pixel IDs starting at 0.",Toast.LENGTH_LONG).show(); return false
+            Toast.makeText(requireContext(),"Music requires a consecutive Pixel-ID prefix starting at 0; later gaps are ignored.",Toast.LENGTH_LONG).show(); return false
         }
 
         val universe=group.GUniverse.takeIf { if (group.allDevices) it == 32000 else it in 32010..35000 }
@@ -1246,8 +1246,8 @@ class MusicFragment : BaseFragment<MusicBinding>() {
     private fun renderFrame(fd:FloatArray,n:Int,level:Float,leftLevel:Float,rightLevel:Float,now:Long,sampleRate:Int) {
         val a=requireActivity() as ControllerActivity
         val group=a.group ?: return
-        // Render and route only the online devices in the consecutive PixelID
-        // prefix selected for this group. Duplicate IDs share a strip position.
+        // Render the frozen strip and route to its currently online devices.
+        // Duplicate IDs share a strip position.
         val configuredItems=onlineMembers()
         val routeItems=a.getCurrentControllerMusicMembers()
         if(configuredItems.isEmpty() || routeItems.isEmpty())return

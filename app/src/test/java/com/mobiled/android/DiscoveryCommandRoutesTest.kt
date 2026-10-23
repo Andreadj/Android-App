@@ -21,7 +21,7 @@ class DiscoveryCommandRoutesTest {
         var time = 0L
         val routes = DiscoveryCommandRoutes({ time })
         routes.accept("MobileD_A", "10.0.0.3", "configured")
-        time = 3501
+        time = 5001
         assertNull(routes.currentAddress("MobileD_A"))
         assertEquals("configured", routes.lastFrame("MobileD_A"))
         routes.accept("MobileD_A", "10.0.0.9", "returned")
@@ -36,7 +36,7 @@ class DiscoveryCommandRoutesTest {
         assertFalse(routes.accept("MobileD_A", "239.255.125.0", "invalid"))
         assertFalse(routes.accept(" ", "10.0.0.4", "invalid"))
         assertEquals("10.0.0.3", routes.currentAddress("MobileD_A"))
-        time = 3501
+        time = 5001
         assertNull(routes.currentAddress("MobileD_A"))
         assertEquals("valid", routes.lastFrame("MobileD_A"))
     }

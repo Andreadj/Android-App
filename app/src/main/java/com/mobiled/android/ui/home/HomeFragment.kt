@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.mobiled.android.adapters.RcvChildListAdapter
 import com.mobiled.android.base.BaseFragment
 import com.mobiled.android.base.comman.UdpClient
+import com.mobiled.android.base.comman.DeviceRoutingPolicy
 import com.mobiled.android.base.model.HardwareDevice
 import com.mobiled.android.base.model.HardwareDeviceListResult
 import com.mobiled.android.base.model.HardwareGroup
@@ -253,9 +254,16 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), RcvChildListAdapter.Ad
     override fun onItemClick(
         hardwareDevice: HardwareGroup, view: View, childPosition: Int, groupPosition: Int
     ) {
-        if (hardwareDevice.isAnyDeviceActive) {
-            var terminalPage = Intent(requireContext(), ControllerActivity::class.java)
+        val client = UdpClient.getClient(requireContext())
+        val selection = DeviceRoutingPolicy.captureOnlineMembers(
+            hardwareDevice.groupItems.orEmpty(),
+            { item -> item.hardwareDevice?.ApName?.let { client.currentDiscoveryIp(it) } != null },
+            { it.snapshotForSelection() }
+        )
+        if (selection.isNotEmpty()) {
+            val terminalPage = Intent(requireContext(), ControllerActivity::class.java)
             terminalPage.putExtra("group", hardwareDevice)
+            terminalPage.putExtra("groupSelection", ArrayList(selection))
             startActivity(terminalPage)
         } else {
             showDialog(

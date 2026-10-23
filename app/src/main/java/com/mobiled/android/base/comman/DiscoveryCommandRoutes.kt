@@ -5,7 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** Stable Discovery identity with live IP lookup, including across reconnects. */
 class DiscoveryCommandRoutes(
     private val now: () -> Long = System::currentTimeMillis,
-    private val timeoutMillis: Long = 3500L
+    private val timeoutMillis: Long = DeviceRoutingPolicy.DISCOVERY_OFFLINE_AFTER_MS
 ) {
     private data class Endpoint(val address: String, val frame: String, val lastSeen: Long)
     private val endpoints = ConcurrentHashMap<String, Endpoint>()

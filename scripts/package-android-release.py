@@ -28,6 +28,7 @@ EXPECTED_TESTS = {
     'com.mobiled.android.DeviceRoutingPolicyTest': 3,
     'com.mobiled.android.DiscoveryCommandRoutesTest': 3,
     'com.mobiled.android.ExampleUnitTest': 1,
+    'com.mobiled.android.GroupSelectionLifecycleTest': 3,
     'com.mobiled.android.ui.controller.TapTempoTest': 4,
 }
 ROOT = Path(__file__).resolve().parents[1]
@@ -315,7 +316,7 @@ def package_release(sdk_root):
             'JVM tests and APK verification do not establish capture or lighting behavior on hardware.',
             'Android Music captures permitted playback media/game/unknown on API 29+ with user consent; no phone microphone capture is implemented.',
             'No native mobile firmware-update feature is added; 8 MB combined is plain and only its OTA update payload is encrypted.',
-            'Android/firmware Matrix IDs reach 1023; the current PC 0.20.45 Matrix UI still caps IDs at 255.',
+            'Android and PC Matrix support Pixel IDs from 0 through 1023.',
         ],
         'integrity': {'algorithm': 'SHA-256', 'manifest': 'release-manifest.json', 'checksums': 'SHA256SUMS.txt',
                       'self_hash_policy': 'Manifest lists payload files; checksums also list the manifest; the checksum file excludes itself.'},
@@ -326,7 +327,7 @@ def package_release(sdk_root):
 APK release firmata: `MobileD_Android_{VERSION}.apk`, applicationId `{APPLICATION_ID}`, versionCode {VERSION_CODE}.
 
 - Build finale Gradle: riuscita; log in `reports/final-build.log`.
-- Test JVM: {tests['tests']} passati, 0 failure/error, 0 saltati; {tests['suites']['com.mobiled.android.ui.controller.MusicOutputTest']} Music, {tests['suites']['com.mobiled.android.DeviceRoutingPolicyTest'] + tests['suites']['com.mobiled.android.DiscoveryCommandRoutesTest']} routing, {tests['suites']['com.mobiled.android.ui.controller.TapTempoTest']} Tap Sync e {tests['suites']['com.mobiled.android.ExampleUnitTest']} test esistente.
+- Test JVM: {tests['tests']} passati, 0 failure/error, 0 saltati; {tests['suites']['com.mobiled.android.ui.controller.MusicOutputTest']} Music, {tests['suites']['com.mobiled.android.DeviceRoutingPolicyTest'] + tests['suites']['com.mobiled.android.DiscoveryCommandRoutesTest']} routing, {tests['suites']['com.mobiled.android.GroupSelectionLifecycleTest']} Discovery/selezione gruppo, {tests['suites']['com.mobiled.android.ui.controller.TapTempoTest']} Tap Sync e {tests['suites']['com.mobiled.android.ExampleUnitTest']} test esistente.
 - About: asset nel pacchetto identico ai sorgenti, versione automatica e schede MobileD 20 W / MobileD XL 40 W verificate.
 - Firma APK: verificata con apksigner SDK 34.0.0; metadati, permessi audio/foreground service, servizio Music e risorse icona presenti nell'APK.
 - Lint debug, eseguito insieme alla build release: `{lint['status']}`, {lint['errors']} errori/fatal, {lint['warnings']} warning; nessuna baseline usata per ignorare errori.
@@ -336,7 +337,7 @@ APK release firmata: `MobileD_Android_{VERSION}.apk`, applicationId `{APPLICATIO
 
 {installation_note} La presenza delle risorse icona non certifica una prova visiva nel launcher.
 
-Music acquisisce playback ammesso da Android 10+, con consenso MediaProjection; non acquisisce il microfono del telefono. Non è aggiunta una funzione OTA nativa mobile. Il combined 8 MB resta in chiaro; solo il suo payload OTA è cifrato. Android/firmware Matrix supportano ID 0–1023; il controller Matrix PC 0.20.45 mantiene il limite UI 255.
+Music acquisisce playback ammesso da Android 10+, con consenso MediaProjection; non acquisisce il microfono del telefono. Non è aggiunta una funzione OTA nativa mobile. Il combined 8 MB resta in chiaro; solo il suo payload OTA è cifrato. Android e PC Matrix supportano ID da 0 a 1023.
 
 I dettagli sono in `build-verification.json`. I report originali sono in `reports`; la documentazione è in `docs`. `release-manifest.json` elenca i file della consegna con dimensioni e SHA-256. `SHA256SUMS.txt` comprende anche il manifest ed esclude se stesso.
 '''

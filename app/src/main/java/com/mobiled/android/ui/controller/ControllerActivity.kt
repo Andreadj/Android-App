@@ -41,8 +41,8 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         var frame: String
     )
 
-    // Membership persists while Discovery reachability and IPs remain live.
-    // Matrix and an active Music session retain their selected virtual slots.
+    // Freeze online membership and addressing when the group is selected.
+    // Discovery changes delivery routes, never the selected members or slots.
     private var controllerSelectionSnapshot: MutableList<GroupCommandTarget>? = null
     private var controllerVirtualStripSnapshot: MutableList<GroupCommandTarget>? = null
     @Volatile private var controllerMusicSnapshot: MutableList<GroupCommandTarget>? = null
@@ -71,6 +71,21 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
         if (intent.hasExtra("group")) {
             group = intent.getSerializableExtra("group") as HardwareGroup
             hydrateGroupUniverseFromDiscovery()
+            @Suppress("UNCHECKED_CAST")
+            val selectedItems = intent.getSerializableExtra("groupSelection") as? ArrayList<HardwareGroupItem>
+            val members = selectedItems ?: DeviceRoutingPolicy.captureOnlineMembers(
+                group?.groupItems.orEmpty(),
+                { item -> item.hardwareDevice?.let { isCurrentlyDiscoveryOnline(it) } == true },
+                { it.snapshotForSelection() }
+            )
+            controllerSelectionSnapshot = members.mapNotNull { item ->
+                val hardware = item.hardwareDevice ?: return@mapNotNull null
+                GroupCommandTarget(item, hardware.ip.orEmpty(), hardware.deviceFrame)
+            }.toMutableList()
+            controllerSelectionEffect = controllerSelectionSnapshot?.firstOrNull()?.item?.hardwareDevice
+                ?.let { discoveryFrame(it).optInt("GLights", -1) } ?: -1
+            refreshControllerMatrixSelection()
+            refreshControllerMusicSelection()
         }
 
         startControllerDiscoveryListeners()
@@ -208,11 +223,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
 
         }
 
-        if (group != null && controllerSelectionSnapshot == null) {
-            captureControllerSelection(currentControllerEffect())
-        } else {
-            bindUI()
-        }
+        bindUI()
 
         if(group!=null)
         {
@@ -407,9 +418,8 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     }
 
     /**
-     * Matrix/Music are distributed-group functions. Android must not expose
-     * them for a single device or for a group without a valid M+S definition.
-     * The Master must be PixelID 0.
+     * Music uses the selected consecutive PixelID prefix starting at 0.
+     * Matrix additionally requires a valid M+S definition and Master at ID 0.
      */
     fun canOpenDistributedEffects(feature: String): Boolean {
         if (device != null) {
@@ -423,14 +433,13 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return false
         }
 
-        // The selection snapshot contains only online devices with valid IPs.
-        // Music and Matrix then use the distinct consecutive PixelID prefix
-        // starting at 0, retaining every online device assigned to each ID.
+        // Use membership and IDs captured at group selection, including devices
+        // that are now offline. Retain every selected device at duplicate IDs.
         val onlineCandidates = getControllerVirtualStripSnapshot()
         if (feature.equals("Music", ignoreCase = true)) {
-            val musicItems = DeviceRoutingPolicy.consecutiveMembers(currentGroupTargets().map { it.item }) { it.PixelID }
+            val musicItems = DeviceRoutingPolicy.consecutiveMembers(getControllerSelectionSnapshot()) { it.PixelID }
             if (musicItems.isEmpty()) {
-                Toast.makeText(this, "No online MobileD in the consecutive PixelID prefix starting at 0.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "No selected MobileD in the consecutive PixelID prefix starting at 0.", Toast.LENGTH_LONG).show()
                 return false
             }
             return true
@@ -447,7 +456,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             onlineItems.addAll(bucket)
         }
         if (onlineItems.isEmpty()) {
-            Toast.makeText(this, "No online MobileD in the consecutive PixelID prefix starting at 0.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "No selected MobileD in the consecutive PixelID prefix starting at 0.", Toast.LENGTH_LONG).show()
             return false
         }
 
@@ -700,7 +709,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = currentGroupTargets()
+        val snapshot = currentGroupEffectTargets()
         if (snapshot.isEmpty()) return
 
         val currentEffect = currentControllerEffect()
@@ -847,7 +856,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             return
         }
 
-        val snapshot = currentGroupTargets()
+        val snapshot = currentGroupEffectTargets()
         if (snapshot.isEmpty()) return
         val group = group ?: return
         val validMasterSlave = isValidLegacyMasterSlaveGroup()
@@ -881,7 +890,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     }
 
     private fun isValidLegacyMasterSlaveGroup(): Boolean {
-        val items = group?.groupItems.orEmpty()
+        val items = getControllerVirtualStripSnapshot()
         if (items.isEmpty()) return false
         val masters = items.count { it.GState.equals("M", ignoreCase = true) }
         if (masters != 1) return false
@@ -934,32 +943,36 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     }.getOrDefault(false)
 
     private fun currentGroupTargets(): MutableList<GroupCommandTarget> =
-        group?.groupItems.orEmpty().mapNotNull { item ->
-            val d = item.hardwareDevice ?: return@mapNotNull null
+        controllerSelectionSnapshot.orEmpty().mapNotNull { selected ->
+            val d = selected.item.hardwareDevice ?: return@mapNotNull null
             val ip = currentControllerDeviceIp(d) ?: return@mapNotNull null
             val frame = discoveryFrame(d)
             if (!frame.has("Command")) return@mapNotNull null
-            GroupCommandTarget(item, ip, frame.toString())
+            GroupCommandTarget(selected.item, ip, frame.toString())
         }.toMutableList()
 
-    private fun captureControllerSelection(effect: Int): MutableList<GroupCommandTarget> {
-        val targets = currentGroupTargets()
-        controllerSelectionSnapshot = targets
-        controllerSelectionEffect = effect
-        refreshControllerMatrixSelection()
-        bindUI()
-        return targets
+    // Filter the frozen strip before checking reachability, so an offline ID
+    // does not remove later valid IDs or admit an initially offline member.
+    private fun currentGroupEffectTargets(): MutableList<GroupCommandTarget> {
+        val selectedItems = getControllerVirtualStripSnapshot().toSet()
+        return currentGroupTargets().filter { it.item in selectedItems }.toMutableList()
     }
 
     fun refreshControllerMatrixSelection(): List<HardwareGroupItem> {
-        controllerVirtualStripSnapshot = currentGroupTargets()
-            .filter { it.item.PixelID in 0..1023 }.toMutableList()
+        if (controllerVirtualStripSnapshot == null) {
+            controllerVirtualStripSnapshot = DeviceRoutingPolicy.consecutiveMembers(
+                controllerSelectionSnapshot.orEmpty()
+            ) { it.item.PixelID }.toMutableList()
+        }
         return getControllerVirtualStripSnapshot()
     }
 
     fun refreshControllerMusicSelection(): List<HardwareGroupItem> {
-        val selected = DeviceRoutingPolicy.consecutiveMembers(currentGroupTargets()) { it.item.PixelID }
-        controllerMusicSnapshot = selected.toMutableList()
+        if (controllerMusicSnapshot == null) {
+            controllerMusicSnapshot = DeviceRoutingPolicy.consecutiveMembers(
+                controllerSelectionSnapshot.orEmpty()
+            ) { it.item.PixelID }.toMutableList()
+        }
         return getControllerMusicVirtualStripSnapshot()
     }
 
@@ -976,7 +989,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             item.hardwareDevice?.let { currentControllerDeviceIp(it) != null } == true
         }
 
-    fun getControllerSelectionSnapshot(): List<HardwareGroupItem> = currentGroupTargets().map { it.item }
+    fun getControllerSelectionSnapshot(): List<HardwareGroupItem> = controllerSelectionSnapshot.orEmpty().map { it.item }
 
     override fun onDestroy() {
         controllerDiscoveryActive = false
@@ -987,8 +1000,8 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
     private fun startControllerDiscoveryListeners() {
         val devices = buildList {
             device?.let { add(it) }
-            group?.groupItems.orEmpty().forEach { item ->
-                item.hardwareDevice?.let { add(it) }
+            controllerSelectionSnapshot.orEmpty().forEach { target ->
+                target.item.hardwareDevice?.let { add(it) }
             }
         }.distinctBy { it.ApName ?: it.ip ?: it.rowId?.toString() ?: "" }
 

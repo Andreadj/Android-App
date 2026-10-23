@@ -237,7 +237,7 @@ class UdpClient(private var context: Context) {
         if (key.isEmpty()) return false
         val lastSeen = discoveryLastSeen[key] ?: return false
         return discoveryOnline[key] == true &&
-            System.currentTimeMillis() - lastSeen <= 3500L
+            DeviceRoutingPolicy.isDiscoveryRecent(System.currentTimeMillis(), lastSeen)
     }
 
     fun currentDiscoveryIp(deviceName: String): String? =
@@ -250,7 +250,7 @@ class UdpClient(private var context: Context) {
             discoveryStateListeners.getOrPut(deviceName.trim()) { arrayListOf() }.add(listener)
             val apName = deviceName.trim()
             val lastSeen = discoveryLastSeen[apName]
-            if (lastSeen != null && System.currentTimeMillis() - lastSeen <= 3500L) {
+            if (lastSeen != null && DeviceRoutingPolicy.isDiscoveryRecent(System.currentTimeMillis(), lastSeen)) {
                 listener.onDiscoveryStateChanged(true)
             }
         }
@@ -263,7 +263,7 @@ class UdpClient(private var context: Context) {
         discoveryWatchExecutor.scheduleAtFixedRate({
             val now = System.currentTimeMillis()
             discoveryLastSeen.forEach { (apName, lastSeen) ->
-                if (now - lastSeen > 3500L &&
+                if (now - lastSeen > DeviceRoutingPolicy.DISCOVERY_OFFLINE_AFTER_MS &&
                     discoveryOnline[apName] == true
                 ) {
                     discoveryOnline[apName] = false

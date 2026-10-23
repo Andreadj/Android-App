@@ -732,7 +732,7 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
         return true
     }
 
-    // Freeze the selected strip until another effect selection. Discovery may
+    // Freeze the strip for this group selection. Discovery may
     // change reachability or IP without changing positions or PixelCount.
     private fun stripMembers(): List<HardwareGroupItem> =
         DeviceRoutingPolicy.consecutiveMembers(

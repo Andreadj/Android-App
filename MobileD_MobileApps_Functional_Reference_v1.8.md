@@ -1,6 +1,6 @@
 # MobileD Android — Riferimento funzionale
 
-**Revisione v1.8 — 22 ottobre 2026**  
+**Revisione v1.8 — aggiornata il 23 ottobre 2026**
 App Android **2.0.11**, versionCode **24** · PC App **0.20.45**, riferimento **v8.6** · ESP-IDF **1.0.10** · Arduino **3.3.70**
 
 ## 1. Ambito e riferimenti
@@ -64,7 +64,7 @@ Il campo Priority appartiene al frame del relativo universo; non sostituisce GPo
 
 ## 4. Gruppi, Discovery e selezione
 
-L'appartenenza ai gruppi persiste durante le disconnessioni. L'identità stabile è APName; IP e stato online provengono dal Discovery corrente. Prima dell'invio, anche nelle ritrasmissioni, il destinatario viene risolto di nuovo: un vecchio IP o uno stato online catturato in precedenza non autorizza l'invio.
+L'appartenenza ai gruppi persiste durante le disconnessioni. L'identità stabile è APName; IP e stato online provengono dal Discovery corrente. Un dispositivo è online al primo rilevamento Discovery valido e passa offline soltanto dopo **più di 5 secondi (5000 ms)** senza rilevamenti. A 5000 ms resta online; un nuovo rilevamento lo riporta online immediatamente. Prima di ogni invio e ritrasmissione si risolvono stato online e IP correnti, senza usare un vecchio IP come prova di raggiungibilità.
 
 Un comando viene inviato subito. Se dopo 50 ms non è stato sostituito da un comando più recente per quel destinatario, sono previste tre ritrasmissioni distanziate di 15 ms. La generazione del comando impedisce che una coda precedente sovrascriva una selezione più recente. Il contenuto identico a un invio passato non costituisce una conferma permanente e non deve impedire di riapplicare lo stesso comando dopo una modifica esterna.
 
@@ -72,15 +72,17 @@ All Devices è il gruppo di sistema: comprende l'inventario MobileD, non si rino
 
 L'assegnazione del Master mette il dispositivo scelto online a PixelID 0 e conserva un unico ruolo M. Gli altri membri del gruppo diventano S anche se temporaneamente offline: il salvataggio non deve lasciare un vecchio Master offline da ritrovare al ritorno in rete. Un invio di identificazione risolve APName e IP correnti, anziché usare un indirizzo conservato nella riga dell'editor.
 
-La selezione Matrix cattura i partecipanti online con IP valido e conserva il prefisso di PixelID distinti consecutivi da 0 fino al primo vuoto. Per esempio, gli ID `0,1,2,2,4,5` producono una strip di tre posizioni, con entrambi i dispositivi ID 2 partecipanti. I duplicati replicano il pixel e non aumentano PixelCount.
+**La selezione del gruppo cattura tutti i membri online in quel momento**, conservandone identità, PixelID e ruoli per Color, Legacy, Matrix e Music. Un membro offline alla selezione resta escluso anche se ritorna prima dell'avvio dell'effetto o condivide un ID già selezionato. Un membro selezionato che passa offline rimane nello snapshot. I cambi Discovery non ricalcolano i partecipanti: occorre selezionare esplicitamente di nuovo il gruppo. L'invio salta i membri selezionati non più raggiungibili e usa l'IP corrente al loro ritorno.
 
-Lo snapshot conserva appartenenza, PixelID e PixelCount durante l'uso: se un partecipante scompare, non vengono spostate le posizioni degli altri. Lo stato online e l'IP restano invece aggiornati dal Discovery. Un ritorno online riutilizza la posizione conservata. Reselezionare il gruppo ricalcola lo snapshot e permette di includere nuovi partecipanti o nuove posizioni.
+Gli appartenenti a un gruppo possono avere ID non consecutivi e duplicati. Per **ogni effetto di gruppo, compresi Legacy, Matrix e tutti i sottotipi Music**, si usa soltanto il prefisso valido di PixelID distinti da 0 fino al primo ID mancante, derivato dallo snapshot di selezione. I membri dopo il primo vuoto o con ID non validi/non assegnati sono ignorati dall'effetto e non ne impediscono l'avvio. Color utilizza tutti i membri dello snapshot senza vincoli di consecutività.
 
-Music risolve i partecipanti online all'avvio o al cambio gruppo; gli ID distinti devono essere consecutivi da 0. Durante lo streaming il numero di pixel e i relativi slot restano stabili. Un dispositivo offline non interrompe gli altri slot; al ritorno conserva la propria posizione. Il ricalcolo richiede una nuova selezione del gruppo.
+Per esempio, gli ID `0,1,2,2,4,5` producono una strip di tre posizioni e quattro dispositivi partecipanti: entrambi i dispositivi ID 2 ricevono lo stesso pixel, mentre ID 4 e 5 restano esclusi. **Music può avviarsi con questo gruppo: non è necessario che tutti gli ID del gruppo siano consecutivi.** I duplicati non aumentano PixelCount. Anche il solo ID 0 basta per Music, senza Master; se manca ID 0 non esiste un prefisso valido. Matrix mantiene il requisito di un Master selezionato a ID 0, raggiungibile durante la configurazione dell'effetto.
+
+Lo snapshot conserva appartenenza, PixelID, ruoli, prefisso e PixelCount anche tra cambi effetto e avvio Music. Se un partecipante scompare, nessuna posizione viene spostata o rimossa; al suo ritorno riutilizza la posizione conservata. Un ritorno online non aggiunge dispositivi inizialmente esclusi e non chiude i vuoti dello snapshot. Reselezionare il gruppo cattura una nuova selezione e ricalcola il prefisso.
 
 La generazione Music riempie la strip configurata completa, comprese le posizioni di partecipanti divenuti offline. L'assenza di un MobileD non azzera il suo pixel nell'universo trasmesso: i fari RGBW collegati al DMX OUT di un altro ricevitore possono replicare tutte le posizioni di quell'universo. Ogni universo contiene 512 slot, con coda inutilizzata a zero. La raggiungibilità corrente governa i destinatari dei comandi e la necessità di trasmettere, non la composizione della strip; se tutti i destinatari configurati sono offline, non vengono inviati frame.
 
-Android e il contratto firmware supportano PixelID **0–1023** per Matrix e Music. La preview Matrix mostra al massimo 20 posizioni e conta gli ID distinti; questo limite visivo non riduce PixelCount o i frame trasmessi. **Differenza PC identificata:** il controller Matrix del sorgente PC 0.20.45 applica ancora un limite UI a 255, sebbene il riferimento PC v8.6 descriva 1023. Il limite Android e firmware qui documentato è 1023; non si dichiara che quel limite UI PC sia stato corretto in questa revisione Android.
+Android e il contratto firmware supportano PixelID **0–1023** per Matrix e Music. La preview Matrix mostra al massimo 20 posizioni e conta gli ID distinti; questo limite visivo non riduce PixelCount o i frame trasmessi. Il contratto condiviso ammette PixelID 0–1023; le verifiche dei sorgenti aggiornati sono registrate nel rapporto della revisione del 23 ottobre 2026.
 
 ## 5. Comandi, potenza e Legacy
 
