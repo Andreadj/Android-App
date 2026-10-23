@@ -1,48 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+<head><meta charset="utf-8"></head>
 <body>
 <h1>Help and Support</h1>
-<p>MobileD Android App is a controller for MobileD lighting units. The following checks follow the same functional structure used by the MobileD PC App.</p>
+<p>Use MobileD Android to control your lights, create groups and save your favourite colours and effects.</p>
 <h2>Getting started</h2>
 <ul>
-    <li>Make sure the MobileD units and the Android device are connected to the network.</li>
-    <li>Use the <strong>+</strong> button on Home to run an explicit discovery scan and add new MobileD units.</li>
-    <li>Discovery remains active after startup and updates registered devices automatically.</li>
-    <li>Open an online device or group to enter the Controller. Offline devices remain saved but cannot receive commands.</li>
+    <li>Connect your Android device and MobileD lights to the same Wi-Fi network, or connect directly to a light's Wi-Fi network.</li>
+    <li>Use the <strong>+</strong> button on Home to find and add your lights.</li>
+    <li>The list updates automatically while the app is open. A saved light is recognised when it reconnects.</li>
+    <li>Open an available light or group to enter the Controller. Unavailable lights remain saved for later use.</li>
 </ul>
 <h2>Devices and Groups</h2>
 <ul>
-    <li>Devices are identified by their stable MobileD identity (APName). If a known MobileD changes IP address, the saved device is updated instead of duplicated.</li>
-    <li><strong>All Devices</strong> is the system group and uses GPort 8890.</li>
-    <li>User-created groups use their configured GPort.</li>
-    <li>Pixel ID defines the position used by distributed Matrix and Music effects and is independent from DMX addressing.</li>
-    <li>Multiple group members may use the same Pixel ID. Synchronized Legacy, Matrix and Music use consecutive Pixel IDs starting at 0 and stop before the first missing ID; every selected member sharing a participating ID is included.</li>
-    <li>Selecting a group keeps the members online at that moment. Commands use their current network address and skip members that are no longer reachable. Select the group again to include other members.</li>
+    <li><strong>All Devices</strong> lets you control all your registered lights together.</li>
+    <li>Create your own groups to control selected lights together.</li>
+    <li>Pixel ID sets each light's position in coordinated effects. Several lights may share the same position.</li>
+    <li>Selecting a group includes the lights available at that moment. Select the group again to include lights that reconnect later.</li>
 </ul>
 <h2>Controller</h2>
 <ul>
-    <li><strong>Color</strong> provides Hue, Color Brightness and White Brightness controls, plus ten saved-color slots arranged in two rows of five. Tap a saved slot to recall it; press and hold to save or overwrite it with the current color and both brightness values. The original five saved colors are retained when updating.</li>
-    <li><strong>Effects</strong> contains the legacy MobileD effects and their parameters. Without a configured Master, Legacy runs locally on all selected reachable members, even with missing, invalid or non-consecutive Pixel IDs. Master/Slave roles are not required.</li>
-    <li><strong>Matrix</strong> is available for valid distributed groups and uses the configured Master/Slave routing.</li>
-    <li><strong>Music</strong> is App-driven: the Android device captures playback audio, generates the virtual strip and transmits the resulting DMX/sACN data to the configured MobileD group.</li>
-    <li>Discovery is the source of truth for the displayed device state.</li>
-</ul>
-<h2>Configuration</h2>
-<ul>
-    <li>When editing a group, assign the required Pixel IDs and Master/Slave roles according to the selected function.</li>
-    <li>To synchronize Legacy, configure exactly one Master with Pixel ID 0. The Master must be selected and reachable; only consecutive Pixel IDs from 0 participate. A missing or invalid configured Master must be corrected before synchronized Legacy can start.</li>
-    <li>For Matrix, exactly one Master is required and the Master must use Pixel ID 0.</li>
-    <li>Music does not use Master/Slave. It uses the group's Pixel IDs and virtual strip routing.</li>
+    <li><strong>Color</strong> provides Hue, Color Brightness and White Brightness controls, plus ten saved-colour slots in two rows of five. Tap a saved colour to recall it; press and hold a slot to save or replace it with the current colour and both brightness values.</li>
+    <li><strong>Effects</strong> contains Legacy effects and their controls. Without a Master, they work independently on all selected available lights and do not require Pixel IDs.</li>
+    <li>To synchronise Legacy, choose one Master with Pixel ID 0. The Master must be available. Lights participate from ID 0 up to the first missing position, including lights sharing the same ID.</li>
+    <li><strong>Matrix</strong> offers coordinated group effects. Choose one Master at Pixel ID 0 and assign consecutive positions starting at 0.</li>
+    <li><strong>Music</strong> creates lighting effects from supported audio playing on your Android device. It requires Android 10 or later and your permission when prompted. Some media apps do not allow their audio to be shared.</li>
+    <li>Music does not require a Master. Assign positions starting at Pixel ID 0; positions after the first gap are excluded.</li>
 </ul>
 <h2>Troubleshooting</h2>
 <ul>
-    <li>If a device is not responding, verify that it is powered, connected to a reachable network, and visible in Discovery.</li>
-    <li>If a device has moved to another IP address, run the explicit discovery scan. The stable device identity prevents duplicate entries.</li>
-    <li>If synchronized Legacy cannot start, check that the configured Master has Pixel ID 0 and is selected and reachable. Select the group again after the Master returns online. To run unsynchronized Legacy, remove the configured Master; Pixel IDs are then optional.</li>
-    <li>If Matrix or Music is unavailable, verify that the selected group has valid consecutive Pixel-ID positions starting at 0 and the required GUniverse configuration.</li>
-    <li>If Music does not start, verify Android playback-capture authorization and that a reachable MobileD group is selected.</li>
+    <li>If a light is unavailable, check that it is powered on and connected to the same Wi-Fi network, then refresh the list.</li>
+    <li>If a light reconnects after you selected its group, select the group again.</li>
+    <li>If synchronised Legacy or Matrix cannot start, check that the chosen Master is available and has Pixel ID 0. To use Legacy independently, select No Master.</li>
+    <li>If a coordinated effect does not include a light, check its Pixel ID and the group's consecutive positions.</li>
+    <li>If Music does not start, allow audio sharing when prompted and check that the chosen media app permits it.</li>
 </ul>
-<p>User Manual and product documentation: <a href="https://www.mobiledonline.eu/">www.mobiledonline.eu</a></p>
-<p>Limited support by e-mail is available at <a href="mailto:info@mobiledonline.eu">info@mobiledonline.eu</a></p>
+<p>User Manual and product information: <a href="https://www.mobiledonline.eu/">www.mobiledonline.eu</a></p>
+<p>Support: <a href="mailto:info@mobiledonline.eu">info@mobiledonline.eu</a></p>
 </body>
 </html>

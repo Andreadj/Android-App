@@ -20,8 +20,8 @@ import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
 
-VERSION = '2.0.14'
-VERSION_CODE = 27
+VERSION = '2.0.15'
+VERSION_CODE = 28
 APPLICATION_ID = 'com.mobiled.android.test'
 EXPECTED_TESTS = {
     'com.mobiled.android.ui.controller.MusicOutputTest': 15,
@@ -260,7 +260,11 @@ def package_release(sdk_root):
             packaged = archive.read('assets/' + name)
             require(packaged == project_file(relative).read_bytes(),
                     'Packaged information page differs from source: ' + name)
-            information_assets.append({'asset': 'assets/' + name, 'matches_current_source': True,
+            require(not re.search(
+                r'\b(?:UDP|TCP|GPort|GUniverse|APName|GLights|unicast|multicast|sACN|Art[- ]?Net|E1\.31|ports?|transports?|8232|8889|8890|5568|6454)\b',
+                packaged.decode('utf-8'), re.IGNORECASE),
+                'Customer information exposes implementation details: ' + name)
+            information_assets.append({'asset': 'assets/' + name, 'customer_information_clean': True, 'matches_current_source': True,
                                        'sha256': sha256(packaged).hexdigest()})
     about_text = about_bytes.decode('utf-8')
     require(all(term in about_text for term in ('{{APP_VERSION}}', 'MobileD &mdash; 20 W',

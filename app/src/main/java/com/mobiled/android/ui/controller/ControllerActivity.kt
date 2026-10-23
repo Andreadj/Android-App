@@ -267,7 +267,7 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            showDialog("Error", "Error : ${e.message}")
+            showDialog("Unable to open the controller", "Return to the light list and select the light or group again.")
         }
     }
 

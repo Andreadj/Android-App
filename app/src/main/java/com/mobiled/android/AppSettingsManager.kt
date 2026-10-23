@@ -68,8 +68,8 @@ object AppSettingsManager {
             val gUniverse = if (group.allDevices) 32000 else
                 group.GUniverse.takeIf { it in 32010..35000 }
                     ?: throw IllegalStateException(
-                        "Cannot export group '${group.groupTitle}': its GUniverse base is missing or invalid. " +
-                            "Repair the group reservation before exporting; no fallback universe is assigned silently."
+                        "Cannot export group '${group.groupTitle}': its setup is incomplete. " +
+                            "Open the group editor and save its configuration before exporting."
                     )
 
             groupArray.put(JSONObject().apply {

@@ -353,7 +353,7 @@ class MusicFragment : BaseFragment<MusicBinding>() {
             if (!running && sendMusicSelection()) ensureCaptureAndStart()
         } catch (e: Throwable) {
             android.util.Log.e("MobileDMusic", "Music effect selection failed", e)
-            Toast.makeText(requireContext(), "Music could not be started: ${e.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "Music could not be started. Check the selected lights and allow audio sharing when prompted.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -1074,10 +1074,10 @@ class MusicFragment : BaseFragment<MusicBinding>() {
         }
 
         val universe=group.GUniverse.takeIf { if (group.allDevices) it == 32000 else it in 32010..35000 }
-            ?: run { Toast.makeText(requireContext(),"Invalid Music GUniverse for this group (All Devices: 32000; other groups: 32010-35000).",Toast.LENGTH_LONG).show(); return false }
+            ?: run { Toast.makeText(requireContext(),"This group is not ready for Music. Open the group editor and save its configuration.",Toast.LENGTH_LONG).show(); return false }
         val gPort=if(group.allDevices) 8890 else group.groupItems.orEmpty()
             .firstOrNull()?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 }
-            ?: run { Toast.makeText(requireContext(),"Invalid Music GPort.",Toast.LENGTH_LONG).show(); return false }
+            ?: run { Toast.makeText(requireContext(),"This group is not ready for Music. Open the group editor and save its configuration.",Toast.LENGTH_LONG).show(); return false }
 
         val total=musicPixelIds(items).distinct().size
         val client=UdpClient.getClient(requireContext())

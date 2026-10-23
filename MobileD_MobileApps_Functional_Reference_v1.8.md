@@ -1,9 +1,10 @@
 # MobileD Android — Riferimento funzionale
 
 **Revisione v1.8 — aggiornata il 23 ottobre 2026**
-App Android **2.0.14**, versionCode **27** · PC App **0.20.46**, riferimento **v8.6** · ESP-IDF **1.0.10** · Arduino **3.3.70**
+App Android **2.0.15**, versionCode **28** · PC App **0.20.47**, riferimento **v8.6** · ESP-IDF **1.0.10** · Arduino **3.3.70**
 
-Aggiornamento Color per Android 2.0.14: dieci slot di salvataggio su due righe da cinque. Gli esiti effettivi di build, test e installazione sono riportati separatamente nei report di consegna. La correzione Legacy già verificata nella 2.0.13 resta inclusa: senza Master configurato non si applicano vincoli PixelID.
+Aggiornamento delle informazioni rivolte al cliente per Android 2.0.15 e PC 0.20.47: menu e avvisi descrivono le funzioni senza dettagli implementativi interni. Il contratto funzionale resta invariato, compresa la griglia Color introdotta nella 2.0.14 e la correzione Legacy della 2.0.13. Gli esiti effettivi di build e verifica sono nei report di consegna; questo documento resta un riferimento di sviluppo.
+
 
 ## 1. Ambito e riferimenti
 

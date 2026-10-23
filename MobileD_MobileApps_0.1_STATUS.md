@@ -1,8 +1,18 @@
 # MobileD Android — Stato del 23 ottobre 2026
 
-Release corrente: **2.0.14**, versionCode **27**, applicationId `com.mobiled.android.test`. Build release, 39 test JVM e 20 test Android su emulatore API 34 passano.
+Release corrente: **2.0.15**, versionCode **28**, applicationId `com.mobiled.android.test`. Build release, 39 test JVM, lint e controllo degli asset informativi nell'APK passano.
 
-## Color 2.0.14: dieci slot su due righe
+## 2.0.15: informazioni e messaggi nell'app
+
+La revisione rimuove dettagli interni di implementazione dalle informazioni del menu laterale e dai messaggi rivolti all'utente. About, Help & Support e Terms and Conditions devono restare coerenti con le funzioni disponibili e fornire le indicazioni necessarie all'uso. About mantiene la versione dinamica da `BuildConfig.VERSION_NAME`.
+
+Color con dieci slot, Legacy, Matrix e Music mantengono le loro funzioni. La 2.0.15 è installata sul telefono senza cancellazione dati; hash, versione e avvio sono verificati. Non sono ripetute le prove strumentali o fisiche della 2.0.14. I report in `dist` riguardano solo la nuova consegna; la precedente è archiviata localmente.
+
+## Storico: release 2.0.14 (versionCode 27)
+
+Build release, **39 test JVM** e **20 test Android su emulatore API 34** passano per la 2.0.14.
+
+### Color 2.0.14: dieci slot su due righe
 
 La griglia di salvataggio colori passa da cinque a dieci slot, disposti in due righe da cinque. Il tocco richiama il colore salvato; la pressione prolungata salva o sovrascrive lo slot con colore, Color Brightness e White Brightness correnti. I primi cinque salvataggi vengono conservati; gli slot dal sesto al decimo sono indipendenti.
 

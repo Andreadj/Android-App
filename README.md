@@ -2,19 +2,27 @@
 
 App Android nativa per controllo Color, Legacy, Matrix e Music dei dispositivi MobileD. Il progetto si può modificare e compilare da terminale; Android Studio è facoltativo.
 
-Release corrente: **2.0.14**, versionCode **27**. Color offre dieci caselle di salvataggio su due righe da cinque, conservando i colori precedenti. Restano incluse le correzioni Legacy della 2.0.13 e del crash del controller della 2.0.12.
+Release corrente: **2.0.15**, versionCode **28**. Le informazioni del menu e gli avvisi usano istruzioni pratiche per il cliente, senza dettagli interni di implementazione. Color, Legacy, Matrix e Music mantengono le loro funzioni.
 
-La release supera **39 test JVM** e **20 test Android su emulatore API 34**, incluse quattro prove Legacy con UDP reale su loopback. Build release, lint senza errori/fatal, firma, metadati e i tre asset del menu laterale sono verificati nei report di consegna.
+Build release, **39 test JVM** e lint senza errori/fatal passano per la 2.0.15. I tre asset About, Help & Support e Terms and Conditions sono confrontati con quelli nell'APK e controllati per evitare dettagli riservati. About mantiene la versione automatica.
 
-La 2.0.14 è installata sul telefono Xiaomi M2101K9AG / Android 13 senza cancellazione dati; hash dell'APK, versione e avvio a freddo sono verificati. L'utente conferma le dieci caselle su due righe da cinque: «Sì, disposizione corretta». Nell'emulatore sono verificati il salvataggio e il richiamo dello slot 10, la persistenza dopo riapertura e la conservazione dei valori nei primi cinque slot. La conferma Legacy sui fari resta attribuita alla precedente 2.0.13; le prove automatiche Legacy passano anche nella 2.0.14.
+La 2.0.15 è installata sul telefono Xiaomi M2101K9AG / Android 13 senza cancellazione dati; hash della release installata, versione e avvio a freddo sono verificati. Non sono stati ripetuti test strumentali o prove fisiche delle luci per questa revisione dei testi; le 20 prove Android e la conferma dei dieci slot restano evidenze della 2.0.14.
 
 Il riferimento corrente è [MobileD_MobileApps_Functional_Reference_v1.8.md](MobileD_MobileApps_Functional_Reference_v1.8.md), disponibile anche in PDF. Include la correzione del contratto Legacy per Android 2.0.13 e PC 0.20.46 e la griglia Color di Android 2.0.14. Versioni storiche e checkpoint mobile precedenti sono conservati in `docs/archive`.
 
-## Color: dieci slot nella 2.0.14
+## Informazioni nell'app: 2.0.15
+
+About, Help & Support, Terms and Conditions e i messaggi dell'interfaccia devono descrivere le funzioni disponibili, i requisiti e le azioni da compiere con un linguaggio adatto all'utente. I dettagli interni della comunicazione tra app e dispositivi non appartengono a queste informazioni. La versione di About continua a provenire da `BuildConfig.VERSION_NAME`.
+
+La revisione mantiene le funzioni e i dieci slot colore. Build, test JVM, firma, asset informativi nell'APK e installazione sono verificati nei report della 2.0.15.
+
+I report in `dist` documentano la 2.0.15; la consegna 2.0.14 è archiviata localmente.
+
+## Storico Color: dieci slot nella 2.0.14
 
 La schermata Color presenta dieci slot in due righe da cinque. Un tocco richiama un colore salvato; una pressione prolungata salva il colore corrente nello slot o lo sovrascrive. Ogni slot conserva il colore e i valori di Color Brightness e White Brightness. I cinque salvataggi esistenti mantengono la loro posizione, mentre i cinque slot aggiuntivi sono indipendenti.
 
-Help & Support è aggiornato alla nuova griglia. Terms and Conditions e About sono stati ricontrollati; About continua a usare `BuildConfig.VERSION_NAME`. Le verifiche sono registrate in `dist/build-verification.json`, `dist/Build_Validation.md` e `dist/reports/color-presets-ui.json`.
+Help & Support è aggiornato alla nuova griglia. Terms and Conditions e About sono stati ricontrollati; About continua a usare `BuildConfig.VERSION_NAME`. Le prove dei dieci slot della 2.0.14 sono conservate nello storico locale; i report in `dist` descrivono la release corrente.
 
 ## Correzione Legacy 2.0.13
 
@@ -22,7 +30,7 @@ Senza Master configurato, Legacy funziona in locale su tutti i membri della sele
 
 Se è configurato un Master, Legacy usa la sincronizzazione: deve esserci un unico M con ID 0, selezionato e raggiungibile; partecipano soltanto gli ID consecutivi da 0 fino al primo buco, inclusi tutti i duplicati. Un Master configurato male, non selezionato o non raggiungibile richiede una segnalazione specifica e non deve trasformare il gruppo in locale. Matrix e Music mantengono le rispettive regole.
 
-Help & Support descrive entrambe le modalità. Terms and Conditions e About sono stati ricontrollati; About continua a ricavare la versione da `BuildConfig.VERSION_NAME`. Gli esiti della 2.0.13 sono archiviati localmente prima del confezionamento della 2.0.14; i report in `dist` riguardano la release corrente.
+Help & Support descrive entrambe le modalità. Terms and Conditions e About sono stati ricontrollati; About continua a ricavare la versione da `BuildConfig.VERSION_NAME`. Gli esiti della 2.0.13 sono archiviati localmente prima del confezionamento della 2.0.14; le relative prove restano attribuite alla 2.0.13.
 
 ## Build locale
 
@@ -55,7 +63,7 @@ Gli APK prodotti da Gradle si trovano in `app/build/outputs/apk/debug` e `app/bu
 
 La presenza di istruzioni di build non certifica che siano state eseguite: verificare il report della consegna. I test su telefono, cattura audio reale e DMX elettrico restano distinti dai test JVM e dalla compilazione. Il riferimento v1.8 contiene le prove funzionali da eseguire sui dispositivi.
 
-I comandi JSON usano UDP 8889; Discovery usa UDP 8232; gli universi degli effetti usano sACN/E1.31 multicast UDP 5568. GPort è un identificatore di gruppo, non una porta di destinazione. L'App mobile non aggiunge in questa revisione un aggiornamento firmware nativo; combined e OTA restano nei progetti firmware.
+L'App controlla i dispositivi MobileD sulla rete locale e distingue gli effetti generati dai fari dalle funzioni Music del telefono. Questa revisione non aggiunge un aggiornamento firmware nativo; la gestione del firmware resta nelle funzioni dedicate del dispositivo.
 
 Il Master viene salvato come unico M anche quando altri membri sono offline; le identificazioni seguono l'IP Discovery corrente. La navigazione Indietro e i callback di autorizzazione Music rispettano il ciclo del controller e la disponibilità delle API Android. Le prove di cattura e DMX su dispositivi restano elencate nel riferimento funzionale.
 

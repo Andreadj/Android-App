@@ -790,13 +790,13 @@ class MatrixFragment : BaseFragment<androidx.viewbinding.ViewBinding>() {
 
         val universe = matrixBaseUniverse(items)
         if (universe == null) {
-            Toast.makeText(requireContext(), "Invalid Matrix GUniverse for this group (All Devices: 32000; other groups: 32010-35000).", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "This group is not ready for Matrix. Open the group editor and save its configuration.", Toast.LENGTH_LONG).show()
             return
         }
         val gPort = if (group.allDevices) 8890 else allGroupItems.firstOrNull()
             ?.Gport?.toIntOrNull()?.takeIf { it in 10000..65535 }
         if (gPort == null) {
-            Toast.makeText(requireContext(), "Invalid Matrix GPort for this group.", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "This group is not ready for Matrix. Open the group editor and save its configuration.", Toast.LENGTH_LONG).show()
             return
         }
 
