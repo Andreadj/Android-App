@@ -2,11 +2,11 @@
 
 App Android nativa per controllo Color, Legacy, Matrix e Music dei dispositivi MobileD. Il progetto si può modificare e compilare da terminale; Android Studio è facoltativo.
 
-Versione corrente verificata: **2.0.11**, versionCode **24**. Aggiorna About con due schede prodotto, MobileD 20 W e MobileD XL 40 W, e mostra la versione App automaticamente da `BuildConfig.VERSION_NAME`. Le specifiche distinte comprendono batterie, ricarica, dimensioni e peso; i dati provengono dal manuale inglese 2026 fornito.
+Versione corrente verificata: **2.0.12**, versionCode **25**. Corregge il crash all'apertura di luci con luminosità Matrix e i problemi collegati a preset, palette, ripristino del controller e listener di rete. About mostra automaticamente la versione da `BuildConfig.VERSION_NAME` e mantiene le schede MobileD 20 W e MobileD XL 40 W.
 
-La build release del 23 ottobre 2026 mantiene versione **2.0.11**, versionCode **24**. Sono passati 29 test JVM senza failure/error/skip; il lint finale non riporta errori/fatal. Firma, metadati, permessi, servizio Music, risorse icona e asset About corrispondente ai sorgenti sono verificati.
+La release del 23 ottobre 2026 supera **29 test JVM** e **16 test Android su emulatore API 34**. Il lint finale non riporta errori/fatal. Firma, metadati, permessi, servizio Music, icone e asset About identico ai sorgenti sono verificati.
 
-La nuova APK del 23 ottobre 2026 non è stata installata sul telefono. L'installazione e l'avvio registrati il 22 ottobre riguardano la precedente APK della stessa versione; le relative prove sono conservate in `.maintenance/2026-10-23/release-before`. I report correnti in `dist/build-verification.json` non attribuiscono installazione o prove sul dispositivo alla nuova APK.
+La release 2.0.12 è installata con aggiornamento sul telefono Xiaomi M2101K9AG / Android 13, mantenendo i dati dell'app. L'APK installata corrisponde byte per byte alla consegna e l'avvio a freddo è riuscito. L'utente ha confermato che la luce prima in crash ora si apre correttamente. La suite automatica sul telefono è stata bloccata dai permessi MIUI di avvio Activity in background; non è dichiarata superata. Le prove automatiche Android completate sono quelle nell'emulatore.
 
 Il riferimento corrente è [MobileD_MobileApps_Functional_Reference_v1.8.md](MobileD_MobileApps_Functional_Reference_v1.8.md), disponibile anche in PDF. Versioni storiche e checkpoint mobile precedenti sono conservati in `docs/archive`.
 
@@ -45,10 +45,18 @@ I comandi JSON usano UDP 8889; Discovery usa UDP 8232; gli universi degli effett
 
 Il Master viene salvato come unico M anche quando altri membri sono offline; le identificazioni seguono l'IP Discovery corrente. La navigazione Indietro e i callback di autorizzazione Music rispettano il ciclo del controller e la disponibilità delle API Android. Le prove di cattura e DMX su dispositivi restano elencate nel riferimento funzionale.
 
-Tap Sync degli effetti Matrix 101 e 105 usa il pulsante con LED nello stile PC e aggiorna BPM, slider e valore Speed visibili. Il flash dura 120 ms al tocco; non è un metronomo automatico. Sono passati 4 test Tap Tempo, 15 Music, 6 routing, 3 Discovery/selezione gruppo e 1 test esistente, per 29 test JVM complessivi della 2.0.11.
+Tap Sync degli effetti Matrix 101 e 105 usa il pulsante con LED nello stile PC e aggiorna BPM, slider e valore Speed visibili. Il flash dura 120 ms al tocco; non è un metronomo automatico. Sono passati 4 test Tap Tempo, 15 Music, 6 routing, 3 Discovery/selezione gruppo e 1 test esistente, per 29 test JVM complessivi della 2.0.12.
 
-APK: `dist/MobileD_Android_2.0.11.apk`; SHA-256 `2217d3ea5bcdb4dcd9e55e4eb9505c87ee16ae533862f2e4aa5379fc55100c4c`. Lo snapshot contiene 321 file con impronta `9bc37a561492a316b9dce9a2a3d04acfe13f116b2ff6a1881ee7de3b468b3601`, corrispondenti agli input della build.
+APK: `dist/MobileD_Android_2.0.12.apk`; SHA-256 `685de51b9fa2c52b8c66a055a2b5a25992bd0e447a14d5d7cd8cd05a41303992`. Lo snapshot contiene 322 file con impronta `892d3969620baaf2dc6df2b40c4d76aa8795ae9c2dbcc24e5f6dc86608a8539d`, corrispondenti agli input della build.
 
 About è verificata nell'asset confezionato; restano da verificare la sua resa visiva sul telefono, Tap Sync fisico, cattura audio reale e comportamento UDP/DMX dei fari. Installazione e avvio non sostituiscono queste prove funzionali.
 
 Discovery porta una luce offline soltanto dopo più di 5000 ms senza rilevamenti validi; il primo rilevamento la riporta online. La selezione del gruppo congela i membri online e i loro ID. Color e Power usano questa selezione; Legacy, Mic, Matrix e Music usano il prefisso consecutivo da ID 0 fino al primo ID mancante. Gli ID duplicati sono ammessi e condividono una posizione. Music può partire anche se altri membri del gruppo hanno ID oltre un buco.
+
+## Correzioni 2.0.12
+
+La regressione del 22 ottobre lasciava passare luminosità Matrix fino a 255 verso uno slider Colore con massimo 100. La UI ora converte correttamente in percentuale e mantiene intatto il valore del protocollo. Sono corretti anche trasporto della cache palette tra Activity, preset fuori intervallo, ripristino dei due slider, frammenti ripristinati e gestione dei listener di controller e righe Home.
+
+I dettagli della verifica sono in [Correzioni Android 2.0.12](dist/docs/Correzioni_Android_2.0.12.md). Il riferimento funzionale v1.8 resta la revisione storica del contratto: la sua intestazione 2.0.11 non indica la versione della consegna corrente.
+
+La regola di controllare e aggiornare anche Help & Support, Terms and Conditions e About a ogni modifica dell'app è registrata in [AGENTS.md](AGENTS.md). In questa release About mostra 2.0.12 automaticamente; gli altri contenuti del menu sono stati verificati e restano coerenti con le funzioni disponibili.

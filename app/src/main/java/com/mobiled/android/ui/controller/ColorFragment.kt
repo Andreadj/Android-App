@@ -43,6 +43,11 @@ class ColorFragment : BaseFragment<FragmentColorBinding>() {
         super.onViewCreated(view, savedInstanceState)
         LogSystem.e(TAG, "onViewCreated")
 
+        // Both reused slider layouts have the same viewSlider ID. Discovery
+        // supplies their values, so hierarchy restore must not overwrite them.
+        viewBinding.viewColorBrightnessPart.viewSlider.isSaveFromParentEnabled = false
+        viewBinding.viewWhiteBrightnessPart.viewSlider.isSaveFromParentEnabled = false
+
         viewBinding.viewColorBrightnessPart.viewSlider.valueFrom = 0F
         viewBinding.viewColorBrightnessPart.viewSlider.valueTo = 100F
         viewBinding.viewColorBrightnessPart.viewSlider.value = 100F
@@ -94,10 +99,18 @@ class ColorFragment : BaseFragment<FragmentColorBinding>() {
             }
 
             viewBinding.colorPickerView.setColor(255, R, G, B)
-            viewBinding.viewColorBrightnessPart.viewSlider.value = Frame.getInt("Brightness") * 1F
-            viewBinding.colorPickerView.setBrightness(Frame.getInt("Brightness") / 100F)
+            val sourceBrightness = Frame.getInt("Brightness")
+            // Matrix discovery reports brightness on a byte scale; the Color
+            // controls always display percentages, including when opened offscreen.
+            val colorBrightness = if (Frame.optInt("GLights", 0) in 101..199) {
+                Math.round(sourceBrightness.coerceIn(0, 255) * 100F / 255F).toFloat()
+            } else {
+                sourceBrightness.coerceIn(0, 100).toFloat()
+            }
+            viewBinding.viewColorBrightnessPart.viewSlider.value = colorBrightness
+            viewBinding.colorPickerView.setBrightness(colorBrightness / 100F)
             viewBinding.viewWhiteBrightnessPart.viewSlider.value =
-                (Frame.getInt("white") / 255F) * 100F
+                (Frame.getInt("white").coerceIn(0, 255) / 255F) * 100F
             viewBinding.colorPickerView.setColorAlpha(
                 GeneralUtil.generateAlphaByWhiteBrightness(
                     viewBinding.viewWhiteBrightnessPart.viewSlider.value,
@@ -435,19 +448,22 @@ class ColorFragment : BaseFragment<FragmentColorBinding>() {
     }
 
     private fun extractStorageColor(argb: IntArray) {
+        if (argb.size < 6) return
         if (argb[1] == 0 && argb[2] == 0 && argb[3] == 0) {
             argb[1] = 255;
         }
         this.argb = intArrayOf(argb[0], argb[1], argb[2], argb[3])
+        val colorBrightness = argb[4].coerceIn(0, 100).toFloat()
+        val whiteBrightness = argb[5].coerceIn(0, 100).toFloat()
 
         viewBinding.colorPickerView.setColor(argb[0], argb[1], argb[2], argb[3])
-        viewBinding.colorPickerView.setBrightness(argb[4].toFloat() / 100F)
-        viewBinding.viewColorBrightnessPart.viewSlider.value = argb[4].toFloat()
-        viewBinding.viewWhiteBrightnessPart.viewSlider.value = argb[5].toFloat()
+        viewBinding.colorPickerView.setBrightness(colorBrightness / 100F)
+        viewBinding.viewColorBrightnessPart.viewSlider.value = colorBrightness
+        viewBinding.viewWhiteBrightnessPart.viewSlider.value = whiteBrightness
         viewBinding.colorPickerView.setColorAlpha(
             GeneralUtil.generateAlphaByWhiteBrightness(
-                argb[5].toFloat(),
-                viewBinding.viewColorBrightnessPart.viewSlider.value
+                whiteBrightness,
+                colorBrightness
             )
         )
     }

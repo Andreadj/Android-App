@@ -227,6 +227,15 @@ class UdpClient(private var context: Context) {
         }
     }
 
+    @Synchronized
+    fun stopListen(deviceName: String, listener: Listener) {
+        val key = deviceName.trim()
+        specificDeviceListener[key]?.let { listeners ->
+            listeners.removeAll { it === listener }
+            if (listeners.isEmpty()) specificDeviceListener.remove(key)
+        }
+    }
+
     /**
      * Returns the current passive Discovery reachability for a MobileD.
      * Group member identification uses this state so Command=2 is sent only
@@ -253,6 +262,15 @@ class UdpClient(private var context: Context) {
             if (lastSeen != null && DeviceRoutingPolicy.isDiscoveryRecent(System.currentTimeMillis(), lastSeen)) {
                 listener.onDiscoveryStateChanged(true)
             }
+        }
+    }
+
+    @Synchronized
+    fun removeDiscoveryStateListener(deviceName: String, listener: DiscoveryStateListener) {
+        val key = deviceName.trim()
+        discoveryStateListeners[key]?.let { listeners ->
+            listeners.removeAll { it === listener }
+            if (listeners.isEmpty()) discoveryStateListeners.remove(key)
         }
     }
 
@@ -352,14 +370,20 @@ class UdpClient(private var context: Context) {
                             val wasOnline = discoveryOnline[apName] == true
                             discoveryOnline[apName] = true
                             if (!wasOnline) {
-                                discoveryStateListeners[apName]?.toList()?.forEach {
+                                val stateListeners = synchronized(this) {
+                                    discoveryStateListeners[apName]?.toList().orEmpty()
+                                }
+                                stateListeners.forEach {
                                     try {
                                         it.onDiscoveryStateChanged(true)
                                     } catch (_: Exception) {
                                     }
                                 }
                             }
-                            specificDeviceListener.get(apName)?.toList()?.forEach {
+                            val packetListeners = synchronized(this) {
+                                specificDeviceListener[apName]?.toList().orEmpty()
+                            }
+                            packetListeners.forEach {
                                 it.onUdpMessage(bytes)
                             }
                         }

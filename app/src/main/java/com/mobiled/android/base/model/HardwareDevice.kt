@@ -18,8 +18,11 @@ import org.json.JSONObject
 class HardwareDevice : java.io.Serializable {
 
 
+    // Local command cache, never transferred between Activities: a command
+    // can contain a JSONArray, which is not Serializable.
     @Expose
     @Ignore
+    @Transient
     var prevLightCommand: LightCommand? = null
 
     @SerializedName("rowId")

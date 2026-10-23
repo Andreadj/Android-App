@@ -1,31 +1,43 @@
-# MobileD Android — Stato corrente
+# MobileD Android — Stato verificato 23 ottobre 2026
 
-**22 ottobre 2026 — App 2.0.11, versionCode 24; riferimento funzionale v1.8.**
+Release corrente: **2.0.12**, versionCode **25**, applicationId `com.mobiled.android.test`.
 
-Il checkpoint storico Android/iOS del 6 ottobre 2026 è conservato in `docs/archive`. Questo aggiornamento riguarda Android; non dichiara nuove build o verifiche iOS.
+## Problema e correzione
 
-La revisione 2.0.11 aggiorna About: schede separate MobileD 20 W e MobileD XL 40 W con batterie, tempi di ricarica, dimensioni e pesi specifici; dati comuni di ottiche, IP20, Wi-Fi e DMX. La versione visibile viene da BuildConfig.VERSION_NAME. Le caratteristiche sono ricavate dal manuale inglese 2026 fornito; il riferimento v1.8 riporta fonte e limiti dei dati.
+Il log del telefono con 2.0.11 confermava `IllegalStateException: Slider value(255.0) ... valueTo(100.0)` durante il disegno della schermata. La connessione AP o alla rete non era la causa. Dal commit `380e9f7` del 22 ottobre il frame conservava correttamente Brightness Matrix fino a 255, ma Colore continuava a usare direttamente quel valore come percentuale. Ora la UI converte 255→100%, 128→50%, 0→0%, lasciando invariato il frame.
 
-Il contratto Android viene allineato al riferimento PC v8.6 e ai firmware ESP-IDF 1.0.10 / Arduino 3.3.70: frame Music sACN completi da 638 byte, routing Music esplicitamente ON senza riscrivere GState, palette RGBW BPM/Spectrum, gestione del ciclo di cattura, identità APName con IP/online Discovery correnti, ritrasmissioni per generazione e strip Matrix fino a PixelID 1023. Il numero di pixel resta stabile durante la sessione e la preview Matrix mostra al massimo 20 posizioni.
+La precedente compilazione, l'avvio dell'app e i test JVM non coprivano l'apertura di questa schermata nello stato Matrix a 255. Sono state aggiunte prove Android con disegno effettivo delle viste.
 
-La cattura Music implementata è playback tramite AudioPlaybackCapture/MediaProjection su Android 10 o successivo, con consenso e sorgente che consenta la cattura. Non è un acquisitore del microfono del telefono. Gli effetti Matrix audio usano invece il microfono del MobileD.
+Ulteriori correzioni verificate:
 
-I frame Music comprendono tutta la strip configurata, incluse le posizioni divenute offline, per mantenere completa la replica dei fari RGBW esterni sul DMX OUT. Il riempimento separa gli universi ai confini 127/128 e include ID 1023; ogni coda inutilizzata resta a zero nei 512 slot. La presenza online governa gli invii, senza rimuovere pixel dalla strip della sessione.
+- La cache locale `prevLightCommand`, che può contenere una palette JSONArray, non viene serializzata tra Activity. Identità e Discovery restano integri per luci e gruppi.
+- I preset Colore non possono assegnare percentuali fuori 0–100 ai cursori.
+- Il ripristino automatico della gerarchia non sovrascrive la luminosità colore con il valore del bianco a causa dell'ID condiviso dai due slider.
+- I callback del controller usano i frammenti effettivamente ripristinati dopo la ricreazione.
+- Controller e righe Home rimuovono soltanto i propri listener al distacco o alla distruzione, li ripristinano al riaggancio e ignorano callback obsoleti. Gli aggiornamenti grafici offline dei gruppi avvengono sul main thread.
 
-Matrix e Music dei tre firmware inoltrano l'intero universo di 512 canali al DMX OUT. Music non dipende dal ruolo GState precedente; Matrix usa Master/Slave. Legacy distribuisce il colore uniforme RGBW sui canali 1–4. Il combined 8 MB è in chiaro e resta distinto dall'OTA 8 MB cifrata. Nessun aggiornamento firmware nativo viene aggiunto all'App mobile in questa revisione.
+## Verifica
 
-La differenza individuata tra il limite UI Matrix PC 255 e il contratto firmware/Android 1023 è dichiarata nel riferimento v1.8. Questa revisione Android non dichiara una correzione del runtime PC.
+- Build finale riuscita: test JVM, assembleRelease, lintDebug, assembleDebug e assembleDebugAndroidTest.
+- **29 test JVM passati**, nessun failure/error/skip.
+- **16 test Android passati** nell'emulatore API 34: 9 aperture/preset/ricreazione/listener, 6 prove dei payload ON/OFF, 1 verifica del package.
+- Lint: zero errori/fatal; firma, versione, permessi, risorse e asset About verificati.
+- Release installata sul telefono Xiaomi M2101K9AG / Android 13 senza cancellazione dati. Avvio COLD riuscito in 1636 ms. Hash dell'APK installata identico alla consegna.
+- **Apertura della luce reale confermata dall'utente: «Sì, ora funziona».**
+- La suite automatica sul telefono non è dichiarata passata: MIUI ha negato gli avvii Activity in background (`MIUILOG- Permission Denied Activity`). Il tentativo è conservato nel report dedicato; il pacchetto ausiliario di test è stato rimosso e sul telefono è presente la release finale.
 
-L'assegnazione del Master aggiorna a Slave anche gli altri membri offline, evitando un secondo Master al loro ritorno. L'identificazione usa l'IP Discovery corrente. Il controller gestisce Indietro tramite il dispatcher; i callback della cattura controllano permessi, richiesta attiva e disponibilità API prima dell'avvio. Le risorse grafiche dell'icona MobileD restano nel progetto; la loro presenza nell'APK è verificata durante il confezionamento e non sostituisce una prova nel launcher di un telefono.
+La cattura audio reale, Tap Sync fisico e DMX elettrico non sono inclusi in questa verifica del crash.
 
-Tap Sync Matrix 101/105 ora presenta pulsante e LED nello stile PC, BPM numerico corretto, flash ambra di 120 ms con cancellazione del timer precedente e aggiornamento dello slider/valore Speed visibili. Le formule PC restano invariate; non viene aggiunto un metronomo né un reset della fase firmware. Il controllo finale dei sorgenti non ha individuato criticità che richiedano modifiche all'APK congelata. I 4 test del calcolo Tap Tempo risultano passati.
+## Menu laterale e consegna
 
-La build release 2.0.11 è riuscita in 7 minuti e 41 secondi. Sono passati 26 test JVM (15 Music, 6 routing, 4 Tap Tempo, 1 esistente) senza failure/error/skip; lintDebug riporta zero errori/fatal. Il pacchetto ha superato la verifica di firma, metadati e 30 file consegnati. L'asset About confezionato corrisponde ai sorgenti e contiene i due modelli 20/40 W e la versione automatica. Gli esiti sono in `dist/build-verification.json` e `build/reports/alignment/final-build.log`.
+Help & Support, Terms and Conditions e About sono stati controllati. About usa `BuildConfig.VERSION_NAME` e visualizza 2.0.12. Gli altri contenuti descrivono ancora correttamente le funzioni disponibili; non è presente una voce FAQ separata. La regola di verificarli e aggiornarli sempre insieme all'app è salvata in `AGENTS.md`.
 
-I 320 file dello snapshot corrispondono agli input della build; impronta SHA-256 aggregata: `e15436cad4ccffcb31511b016653d9448652efc0c0d3e95ffcef55b19746955b`. L'APK `dist/MobileD_Android_2.0.11.apk` ha SHA-256 `6205f485fdaa104541bcac06e771bf9e444cf8f0c8ed7d985ee648232587ee57`.
+Il riferimento funzionale v1.8 resta invariato come revisione del contratto; la sua intestazione 2.0.11 è storica. La versione della consegna corrente è quella indicata qui e nel README.
 
-La versione 2.0.11 è stata installata sul telefono con esito Success e avviata a freddo COLD con Status OK in 993 ms. Sono confermati versionName 2.0.11, versionCode 24 e lastUpdateTime del 22 ottobre 2026 alle 14:45:54, ora Europe/Rome. La precedente 2.0.10 resta archiviata nella manutenzione della sua release.
+APK: `MobileD_Android_2.0.12.apk`.
 
-La resa visiva della nuova About sul telefono non è ancora verificata: Xiaomi ha rifiutato `adb input tap` con `SecurityException: INJECT_EVENTS`; è stata richiesta l'apertura manuale Menu → About. Non sono state cambiate impostazioni di sicurezza. Restano da verificare l'interazione fisica Tap Sync, la cattura audio reale, l'invio/ricezione UDP sui MobileD e il DMX elettrico. Non si dichiarano nuove prove su emulatore.
+SHA-256 APK: `685de51b9fa2c52b8c66a055a2b5a25992bd0e447a14d5d7cd8cd05a41303992`.
 
-Per comandi di build e disposizione degli artefatti consultare `README.md`; per comportamento dettagliato e prove ancora necessarie consultare `MobileD_MobileApps_Functional_Reference_v1.8.md` e il PDF corrispondente.
+Snapshot: 322 file, SHA-256 aggregato `892d3969620baaf2dc6df2b40c4d76aa8795ae9c2dbcc24e5f6dc86608a8539d`.
+
+I report sono in `dist/build-verification.json` e `dist/reports`. La consegna precedente, il log originale del crash e i tentativi intermedi sono conservati in `.maintenance/2026-10-23/controller-crash-2.0.11`.

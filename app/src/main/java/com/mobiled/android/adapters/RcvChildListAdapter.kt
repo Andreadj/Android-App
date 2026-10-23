@@ -26,6 +26,7 @@ import com.mobiled.android.databinding.ListItemBinding
 import org.json.JSONException
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 class RcvChildListAdapter(private val childItems: List<Any>) :
     RecyclerView.Adapter<RcvChildListAdapter.ChildItemViewHolder>() {
@@ -33,16 +34,31 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         const val TAG = "RcvChildListAdapter"
     }
 
-    private val executor = Executors.newSingleThreadExecutor()
+    private var executor = Executors.newSingleThreadExecutor()
+    private val boundHolders = mutableSetOf<ChildItemViewHolder>()
     open var mainHandler: Handler? = Handler(Looper.getMainLooper())
     private var itemListener: AdapterItemListener? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ChildItemViewHolder {
         val layoutInflater = LayoutInflater.from(parent.context)
-        return ChildItemViewHolder(ListItemBinding.inflate(layoutInflater, parent, false))
+        return ChildItemViewHolder(ListItemBinding.inflate(layoutInflater, parent, false)).also { holder ->
+            holder.itemView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) {
+                    val position = holder.boundPosition
+                    if (!holder.hasSubscriptions() && position in childItems.indices) {
+                        onBindViewHolder(holder, position)
+                    }
+                }
+                override fun onViewDetachedFromWindow(view: View) = releaseSubscriptions(holder)
+            })
+        }
     }
 
     override fun onBindViewHolder(holder: ChildItemViewHolder, position: Int) {
+        holder.clearSubscriptions()
+        if (executor.isShutdown) executor = Executors.newSingleThreadExecutor()
+        holder.boundPosition = position
+        boundHolders.add(holder)
         val viewBinding = holder.viewBinding
         resetViewVisibility(viewBinding)
         viewBinding.viewSyncState.visibility = View.VISIBLE
@@ -53,11 +69,37 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         }
     }
 
+    private fun releaseSubscriptions(holder: ChildItemViewHolder) {
+        holder.clearSubscriptions()
+        if (boundHolders.none { it.hasSubscriptions() }) executor.shutdown()
+    }
+
+    override fun onViewRecycled(holder: ChildItemViewHolder) {
+        releaseSubscriptions(holder)
+        holder.boundPosition = RecyclerView.NO_POSITION
+        boundHolders.remove(holder)
+        super.onViewRecycled(holder)
+    }
+
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        super.onAttachedToRecyclerView(recyclerView)
+        if (executor.isShutdown) executor = Executors.newSingleThreadExecutor()
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        boundHolders.toList().forEach { it.clearSubscriptions() }
+        boundHolders.clear()
+        mainHandler?.removeCallbacksAndMessages(null)
+        executor.shutdown()
+        super.onDetachedFromRecyclerView(recyclerView)
+    }
+
     private fun bindHardwareDevice(
         holder: ChildItemViewHolder,
         viewBinding: ListItemBinding,
         device: HardwareDevice
     ) {
+        val generation = holder.bindingGeneration
 
         //<--------------- Default Actions --------------->
         viewBinding.viewRoot.setOnLongClickListener {
@@ -78,6 +120,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
 
         val syncStateRunnable = Runnable {
             viewBinding.root.post {
+                if (!holder.isCurrentBinding(generation)) return@post
                 viewBinding.viewSyncState.visibility = View.GONE
                 if (device.deviceFrame.isEmpty()) resetViewVisibility(viewBinding)
             }
@@ -87,6 +130,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         val updateTask = Runnable {
             LogSystem.e(TAG,"1.Task Message Received Holder-${holder.bindingAdapterPosition} Device-${device.ApName}")
             viewBinding.root.post {
+                if (!holder.isCurrentBinding(generation)) return@post
                 LogSystem.e(TAG,"2.Task Message Received Holder-${holder.bindingAdapterPosition} Device-${device.ApName}")
                 try {
                     processChanges(device)
@@ -97,12 +141,13 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
             }
         }
 
-        getClient(holder.itemView.context).listenDiscoveryState(
+        holder.listenDiscoveryState(
             device.ApName.orEmpty(),
             object : UdpClient.DiscoveryStateListener {
                 override fun onDiscoveryStateChanged(online: Boolean) {
                     device.isOnline = online
                     mainHandler?.post {
+                        if (!holder.isCurrentBinding(generation)) return@post
                         if (!online) {
                             viewBinding.viewSyncState.visibility = View.GONE
                             viewBinding.ivDeviceStatus.setImageResource(
@@ -117,7 +162,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
             }
         )
 
-        getClient(holder.itemView.context).startListen(
+        holder.listenPackets(
             device.ApName!!,
             object : UdpClient.Listener {
                 override fun onUdpMessage(bytes: ByteArray) {
@@ -160,6 +205,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         viewBinding: ListItemBinding,
         hardwareGroup: HardwareGroup
     ) {
+        val generation = holder.bindingGeneration
 
         //<--------------- Default Actions --------------->
         viewBinding.viewRoot.setOnLongClickListener {
@@ -172,7 +218,9 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         viewBinding.viewSyncState.visibility = View.VISIBLE
 
         val syncStateRunnable = Runnable {
-            viewBinding.root.post { resetViewVisibility(viewBinding) }
+            viewBinding.root.post {
+                if (holder.isCurrentBinding(generation)) resetViewVisibility(viewBinding)
+            }
         }
 
         holder.bindGroupIcon(false)
@@ -199,6 +247,7 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
 
         val updateTask = Runnable {
             viewBinding.root.post {
+                if (!holder.isCurrentBinding(generation)) return@post
                 updateHardwareGroupView(
                     viewBinding,
                     hardwareGroup,
@@ -209,21 +258,24 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         }
 
         hardwareGroup.groupItems?.forEach { groupItem ->
-            getClient(holder.itemView.context).listenDiscoveryState(
+            holder.listenDiscoveryState(
                 groupItem.hardwareDevice?.ApName.orEmpty(),
                 object : UdpClient.DiscoveryStateListener {
                     override fun onDiscoveryStateChanged(online: Boolean) {
                         groupItem.hardwareDevice?.isOnline = online
-                        mainHandler?.post(updateTask)
-                        if (!online) {
-                            mainHandler?.post { viewBinding.viewSyncState.visibility = View.GONE }
-                            viewBinding.ivDeviceStatus.setImageResource(R.drawable.group_device_default)
-                            holder.setDeviceNames(hardwareGroup)
+                        mainHandler?.post {
+                            if (!holder.isCurrentBinding(generation)) return@post
+                            updateTask.run()
+                            if (!online) {
+                                viewBinding.viewSyncState.visibility = View.GONE
+                                viewBinding.ivDeviceStatus.setImageResource(R.drawable.group_device_default)
+                                holder.setDeviceNames(hardwareGroup)
+                            }
                         }
                     }
                 }
             )
-            getClient(holder.itemView.context).startListen(
+            holder.listenPackets(
                 groupItem.hardwareDevice?.ApName ?: "",
                 object : UdpClient.Listener {
                     override fun onUdpMessage(bytes: ByteArray) {
@@ -251,24 +303,31 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
         updateTask: Runnable
     ) {
         LogSystem.e(TAG, "UDP Discovery received Holder-${holder.bindingAdapterPosition} Device-${device.ApName}")
-        executor.submit {
-            try {
-                val jsonObject = JSONObject(String(bytes))
-                if (!jsonObject.has("APName")) return@submit
-                val frame = jsonObject.toString()
-                synchronized(device) {
-                    // Discovery is authoritative. Always replace the previous
-                    // Discovery frame with the newly received complete frame.
-                    // Never ignore a valid packet because a local command is
-                    // pending and never write a local command into deviceFrame.
-                    device.applyDiscoveryFrame(frame)
-                    if (device.activeCommandFrame == frame) {
-                        device.clearSentCommand()
+        val generation = holder.bindingGeneration
+        try {
+            executor.submit {
+                try {
+                    if (!holder.isCurrentBinding(generation)) return@submit
+                    val jsonObject = JSONObject(String(bytes))
+                    if (!jsonObject.has("APName")) return@submit
+                    val frame = jsonObject.toString()
+                    synchronized(device) {
+                        if (!holder.isCurrentBinding(generation)) return@submit
+                        // Discovery is authoritative. Always replace the previous
+                        // Discovery frame with the newly received complete frame.
+                        // Never ignore a valid packet because a local command is
+                        // pending and never write a local command into deviceFrame.
+                        device.applyDiscoveryFrame(frame)
+                        if (device.activeCommandFrame == frame) {
+                            device.clearSentCommand()
+                        }
                     }
+                    mainHandler?.post(updateTask)
+                } catch (_: Exception) {
                 }
-                mainHandler?.post(updateTask)
-            } catch (_: Exception) {
             }
+        } catch (_: RejectedExecutionException) {
+            // A queued UDP callback can arrive after this adapter is detached.
         }
     }
 
@@ -526,6 +585,46 @@ class RcvChildListAdapter(private val childItems: List<Any>) :
 
     inner class ChildItemViewHolder(val viewBinding: ListItemBinding) :
         RecyclerView.ViewHolder(viewBinding.root) {
+
+        var boundPosition = RecyclerView.NO_POSITION
+        @Volatile var bindingGeneration = 0L
+            private set
+        private val subscriptionCleanup = mutableListOf<() -> Unit>()
+
+        fun hasSubscriptions(): Boolean = subscriptionCleanup.isNotEmpty()
+        fun isCurrentBinding(generation: Long): Boolean = bindingGeneration == generation
+
+        fun clearSubscriptions() {
+            bindingGeneration++
+            subscriptionCleanup.forEach { it() }
+            subscriptionCleanup.clear()
+        }
+
+        fun listenPackets(name: String, listener: UdpClient.Listener) {
+            if (name.isBlank()) return
+            val client = getClient(itemView.context)
+            val generation = bindingGeneration
+            val guarded = object : UdpClient.Listener {
+                override fun onUdpMessage(bytes: ByteArray) {
+                    if (isCurrentBinding(generation)) listener.onUdpMessage(bytes)
+                }
+            }
+            subscriptionCleanup.add { client.stopListen(name, guarded) }
+            client.startListen(name, guarded)
+        }
+
+        fun listenDiscoveryState(name: String, listener: UdpClient.DiscoveryStateListener) {
+            if (name.isBlank()) return
+            val client = getClient(itemView.context)
+            val generation = bindingGeneration
+            val guarded = object : UdpClient.DiscoveryStateListener {
+                override fun onDiscoveryStateChanged(online: Boolean) {
+                    if (isCurrentBinding(generation)) listener.onDiscoveryStateChanged(online)
+                }
+            }
+            subscriptionCleanup.add { client.removeDiscoveryStateListener(name, guarded) }
+            client.listenDiscoveryState(name, guarded)
+        }
 
         fun writeCommand(
             lightCommand: LightCommand,

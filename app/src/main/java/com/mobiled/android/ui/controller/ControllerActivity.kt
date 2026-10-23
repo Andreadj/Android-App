@@ -50,7 +50,9 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
 
     // Discovery callbacks can remain queued after this Activity is destroyed.
     // Never update the UI after the Activity lifecycle has ended.
-    private var controllerDiscoveryActive = true
+    @Volatile private var controllerDiscoveryActive = true
+    private val controllerUdpListeners = mutableListOf<Pair<String, UdpClient.Listener>>()
+    private val controllerStateListeners = mutableListOf<Pair<String, UdpClient.DiscoveryStateListener>>()
 
     lateinit var viewPagerAdapter: SlidePagerAdapter
 
@@ -993,6 +995,11 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
 
     override fun onDestroy() {
         controllerDiscoveryActive = false
+        val client = UdpClient.getClient(applicationContext)
+        controllerUdpListeners.forEach { (name, listener) -> client.stopListen(name, listener) }
+        controllerStateListeners.forEach { (name, listener) -> client.removeDiscoveryStateListener(name, listener) }
+        controllerUdpListeners.clear()
+        controllerStateListeners.clear()
         if (isFinishing) stopMusicForExternalControl()
         super.onDestroy()
     }
@@ -1009,52 +1016,51 @@ class ControllerActivity : com.mobiled.android.base.BaseActivity<ActivityControl
             val apName = hardwareDevice.ApName?.trim().orEmpty()
             if (apName.isEmpty()) return@forEach
 
-            UdpClient.getClient(this@ControllerActivity).startListen(
-                apName,
-                object : UdpClient.Listener {
-                    override fun onUdpMessage(bytes: ByteArray) {
-                        try {
-                            val frame = JSONObject(String(bytes))
-                            if (!frame.has("APName")) return
+            val client = UdpClient.getClient(this@ControllerActivity)
+            val packetListener = object : UdpClient.Listener {
+                override fun onUdpMessage(bytes: ByteArray) {
+                    try {
+                        val frame = JSONObject(String(bytes))
+                        if (!frame.has("APName")) return
 
-                            if (!controllerDiscoveryActive || isFinishing || isDestroyed) return
-
-                            runOnUiThread {
-                                if (!controllerDiscoveryActive || isFinishing || isDestroyed) return@runOnUiThread
-
-                                // This object is the Controller's local model of
-                                // the latest Discovery. It is never overwritten
-                                // by locally sent commands.
-                                hardwareDevice.applyDiscoveryFrame(frame.toString())
-                                hardwareDevice.ip = frame.optString("IP", hardwareDevice.ip.orEmpty())
-                                if (frame.has("Port")) {
-                                    hardwareDevice.port = frame.optLong("Port", hardwareDevice.port)
-                                }
-                                if (hardwareDevice.activeCommandFrame == frame.toString()) {
-                                    hardwareDevice.clearSentCommand()
-                                }
-                                bindUI()
-                            }
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-            )
-            UdpClient.getClient(this@ControllerActivity).listenDiscoveryState(
-                apName,
-                object : UdpClient.DiscoveryStateListener {
-                    override fun onDiscoveryStateChanged(online: Boolean) {
                         if (!controllerDiscoveryActive || isFinishing || isDestroyed) return
 
                         runOnUiThread {
                             if (!controllerDiscoveryActive || isFinishing || isDestroyed) return@runOnUiThread
 
-                            hardwareDevice.isOnline = online
-                            if (!online) bindUI()
+                            // This object is the Controller's local model of
+                            // the latest Discovery. It is never overwritten
+                            // by locally sent commands.
+                            hardwareDevice.applyDiscoveryFrame(frame.toString())
+                            hardwareDevice.ip = frame.optString("IP", hardwareDevice.ip.orEmpty())
+                            if (frame.has("Port")) {
+                                hardwareDevice.port = frame.optLong("Port", hardwareDevice.port)
+                            }
+                            if (hardwareDevice.activeCommandFrame == frame.toString()) {
+                                hardwareDevice.clearSentCommand()
+                            }
+                            bindUI()
                         }
+                    } catch (_: Exception) {
                     }
                 }
-            )
+            }
+            controllerUdpListeners.add(apName to packetListener)
+            client.startListen(apName, packetListener)
+            val stateListener = object : UdpClient.DiscoveryStateListener {
+                override fun onDiscoveryStateChanged(online: Boolean) {
+                    if (!controllerDiscoveryActive || isFinishing || isDestroyed) return
+
+                    runOnUiThread {
+                        if (!controllerDiscoveryActive || isFinishing || isDestroyed) return@runOnUiThread
+
+                        hardwareDevice.isOnline = online
+                        if (!online) bindUI()
+                    }
+                }
+            }
+            controllerStateListeners.add(apName to stateListener)
+            client.listenDiscoveryState(apName, stateListener)
         }
     }
 

@@ -7,7 +7,7 @@ import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.mobiled.android.base.BaseFragment
 
 class SlidePagerAdapter(
-    fragmentActivity: FragmentActivity, private var fragmentList: List<Fragment> = buildList {
+    private val fragmentActivity: FragmentActivity, private var fragmentList: List<Fragment> = buildList {
         this.add(ColorFragment.newInstance())
         this.add(FunctionFragment.newInstance())
         this.add(MicrophoneEffectFragment.newInstance())
@@ -22,7 +22,11 @@ class SlidePagerAdapter(
     }
 
     fun getFragment(position: Int): BaseFragment<ViewBinding> {
-        return fragmentList.get(position) as BaseFragment<ViewBinding>
+        // FragmentStateAdapter restores its existing fragments after recreation.
+        // Return the attached instance so controller callbacks reach its real view.
+        val restored = fragmentActivity.supportFragmentManager
+            .findFragmentByTag("f${getItemId(position)}")
+        return (restored ?: fragmentList[position]) as BaseFragment<ViewBinding>
     }
 
 }

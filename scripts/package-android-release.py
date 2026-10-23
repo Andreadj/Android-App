@@ -20,8 +20,8 @@ import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
 
-VERSION = '2.0.11'
-VERSION_CODE = 24
+VERSION = '2.0.12'
+VERSION_CODE = 25
 APPLICATION_ID = 'com.mobiled.android.test'
 EXPECTED_TESTS = {
     'com.mobiled.android.ui.controller.MusicOutputTest': 15,
@@ -130,6 +130,23 @@ def check_tests():
             'suites': suites, 'cases': cases}, reports
 
 
+def check_controller_regression(source_snapshot):
+    path = ALIGNMENT / 'controller-regression.json'
+    if not path.exists():
+        return None
+    regression = read_json(path)
+    require(regression.get('version_name') == VERSION
+            and regression.get('version_code') == VERSION_CODE,
+            'Controller regression report refers to another version')
+    require(regression.get('source_tree_sha256') == source_snapshot['source_tree_sha256'],
+            'Controller regression report refers to another source tree')
+    require(regression.get('status') == 'passed'
+            and type(regression.get('tests')) is int and regression['tests'] > 0
+            and regression.get('failures') == 0,
+            'Controller regression tests have not passed')
+    return regression
+
+
 def check_lint(build_text):
     require(':app:lintDebug' in build_text, 'Final build log must include the lintDebug task')
     path = project_file('app/build/reports/lint-results-debug.xml')
@@ -228,6 +245,7 @@ def package_release(sdk_root):
     require(datetime.fromisoformat(source_snapshot['captured_at']).timestamp() <= build_log.stat().st_mtime + 2,
             'Final build log predates source snapshot')
     tests, test_reports = check_tests()
+    controller_regression = check_controller_regression(source_snapshot)
     lint = check_lint(build_text)
     apk_source, apk_metadata, sdk_outputs = check_apk(sdk_root)
     with ZipFile(apk_source) as archive:
@@ -279,8 +297,17 @@ def package_release(sdk_root):
                'physical_phone_tests_run': False, 'emulator_tests_run': False,
                'instrumentation_tests_run': False, 'audio_playback_capture_on_device_tested': False,
                'physical_dmx_tests_run': False}
-    installation_note = ("L'APK non risulta installato. Non sono stati eseguiti test su telefono/emulatore, "
-                         'test strumentali, cattura audio reale o DMX fisico.')
+    physical_debug_tests_run = (controller_regression is not None
+                                and controller_regression.get('physical_debug_tests_run') is True)
+    untested_targets = 'telefono/emulatore' if controller_regression is None else 'telefono'
+    untested_instrumentation = 'test strumentali, ' if controller_regression is None else ''
+    if physical_debug_tests_run:
+        installation_note = ("L'APK release non risulta installato. Non sono stati eseguiti test di "
+                             'cattura audio reale o DMX fisico.')
+    else:
+        installation_note = (f"L'APK release non risulta installato. Non sono stati eseguiti test su {untested_targets}, "
+                             f'{untested_instrumentation}cattura audio reale o DMX fisico.')
+    manual_controller_verified = False
     installation_path = ALIGNMENT / 'device-installation.json'
     if installation_path.exists():
         installed = read_json(installation_path)
@@ -295,11 +322,29 @@ def package_release(sdk_root):
                 and installed.get('package_observation', {}).get('version_code') == VERSION_CODE,
                 'Installation/launch/version evidence is incomplete')
         copy_report(installation_path, 'device-installation.json')
+        manual_controller_verified = installed.get('physical_controller_interaction_tested') is True
         runtime.update(installed=True, launch_verified=True,
+                       physical_phone_tests_run=manual_controller_verified,
+                       manual_controller_open_verified=manual_controller_verified,
                        installation_report='reports/device-installation.json')
         installation_note = (f"APK {VERSION} installata con aggiornamento sul telefono {installed['device_model']}; "
                              'avvio e versione verificati. Non sono stati eseguiti test funzionali del Tap Sync sul telefono, '
-                             'test strumentali, cattura audio reale o DMX fisico.')
+                             f'{untested_instrumentation}cattura audio reale o DMX fisico.')
+    if controller_regression is not None:
+        copy_report(ALIGNMENT / 'controller-regression.json', 'controller-regression.json')
+        runtime.update(emulator_tests_run=True, instrumentation_tests_run=True,
+                       controller_regression_report='reports/controller-regression.json',
+                       controller_regression_variant='debug')
+        regression_targets = 'emulatore Android'
+        if physical_debug_tests_run:
+            runtime.update(physical_phone_tests_run=True,
+                           controller_regression_physical_device=controller_regression.get('physical_device', {}))
+            regression_targets += ' e telefono Android fisico'
+        if manual_controller_verified:
+            installation_note += " Apertura della luce precedentemente in crash confermata dall'utente sul telefono con la release installata."
+        installation_note += (f" Test strumentali Controller: {controller_regression['tests']} passati, "
+                              f'0 failure, eseguiti su {regression_targets} con variante debug degli stessi '
+                              'sorgenti della release; report in `reports/controller-regression.json`.')
     report = {
         'generated_at': datetime.now().astimezone().isoformat(), 'project': 'MobileD Android',
         'build': {'status': 'passed', 'log': 'reports/final-build.log',
