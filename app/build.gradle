@@ -6,14 +6,14 @@ plugins {
 
 android {
     namespace 'com.mobiled.android'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
-        applicationId "com.mobiled.android.test"
+        applicationId "com.mobiled.android"
         minSdk 26
-        targetSdk 34
-        versionCode 28
-        versionName "2.0.15"
+        targetSdk 36
+        versionCode 29
+        versionName "2.0.16"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         def date = new Date()
@@ -55,6 +55,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
+            applicationIdSuffix ".test"
             // Keep the Android test runner and its Kotlin runtime available.
             minifyEnabled false
             def date = new Date()

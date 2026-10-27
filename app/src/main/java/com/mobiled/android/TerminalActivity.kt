@@ -23,6 +23,7 @@ class TerminalActivity : AppCompatActivity(), UdpClient.Listener {
         super.onCreate(savedInstanceState)
         binding = ActivityTerminalBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        com.mobiled.android.base.applySystemBarInsets(binding.root)
 
         if (!intent.hasExtra("device")) {
             if (!intent.hasExtra("group")) {

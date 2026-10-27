@@ -20,3 +20,7 @@ private_key.pepk
 /dist/
 
 /.kotlin/
+
+# Local signing configuration; use gradle.properties.example for a fresh clone.
+/gradle.properties
+/app/src/**/*.zip

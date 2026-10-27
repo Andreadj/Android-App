@@ -1,8 +1,12 @@
-# MobileD Android — Stato del 23 ottobre 2026
+# MobileD Android — Stato del 27 ottobre 2026
 
-Release corrente: **2.0.15**, versionCode **28**, applicationId `com.mobiled.android.test`. Build release, 39 test JVM, lint e controllo degli asset informativi nell'APK passano.
+Release corrente: **2.0.16**, versionCode **29**, applicationId release `com.mobiled.android`, debug `com.mobiled.android.test`, compile/target SDK 36. Build e verifiche della candidata sono descritte in `docs/GOOGLE_PLAY_RELEASE.md` e `docs/ANDROID_2.0.16_ALIGNMENT.md`.
 
-## 2.0.15: informazioni e messaggi nell'app
+Il 27 ottobre 2026 la Console del proprietario mostra 2.0.16 nei test interni, mentre la produzione e ancora 2.0.7. Il proprietario conferma il test delle app. La dichiarazione del servizio in primo piano e il video Music sono in preparazione; non viene dichiarato un invio in produzione gia completato.
+
+La consegna locale corrente include l'APK 2.0.16 ricavato dal bundle Play originale. I file precedenti della 2.0.15 sono archiviati separatamente. Il file delle credenziali di firma rimane locale e non viene incluso nella versione corrente della repository.
+
+## Storico 2.0.15: informazioni e messaggi nell'app
 
 La revisione rimuove dettagli interni di implementazione dalle informazioni del menu laterale e dai messaggi rivolti all'utente. About, Help & Support e Terms and Conditions devono restare coerenti con le funzioni disponibili e fornire le indicazioni necessarie all'uso. About mantiene la versione dinamica da `BuildConfig.VERSION_NAME`.
 

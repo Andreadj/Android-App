@@ -33,6 +33,7 @@ open abstract class BaseActivity<VB : ViewBinding, VM : ViewModel> : AppCompatAc
         _binding = getActivityBinding()
         _viewModel = getViewModelObject()
         setContentView(binding.root)
+        applySystemBarInsets(binding.root)
 
         com.mobiled.android.base.comman.KeyboardUtil.setupUI(binding.root)
         registerObservers()

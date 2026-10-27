@@ -17,6 +17,7 @@ class TestingActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         viewBinding = ActivityTestingBinding.inflate(layoutInflater)
         setContentView(viewBinding.root)
+        com.mobiled.android.base.applySystemBarInsets(viewBinding.root)
 
         var defaultNetmask = InetAddress.getByName("255.255.255.0").toInt()
         logMessage("TAG","Netmask : ${defaultNetmask}")

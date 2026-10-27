@@ -20,9 +20,9 @@ import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
 
-VERSION = '2.0.15'
-VERSION_CODE = 28
-APPLICATION_ID = 'com.mobiled.android.test'
+VERSION = '2.0.16'
+VERSION_CODE = 29
+APPLICATION_ID = 'com.mobiled.android'
 EXPECTED_TESTS = {
     'com.mobiled.android.ui.controller.MusicOutputTest': 15,
     'com.mobiled.android.DeviceRoutingPolicyTest': 3,

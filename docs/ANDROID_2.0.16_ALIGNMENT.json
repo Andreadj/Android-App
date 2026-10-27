@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-27",
+  "version": "2.0.16",
+  "versionCode": 29,
+  "applicationId": "com.mobiled.android",
+  "debugApplicationId": "com.mobiled.android.test",
+  "compileSdk": 36,
+  "targetSdk": 36,
+  "jvmTests": {
+    "tests": 39,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "informationAssets": [
+    {
+      "asset": "aboutus.html",
+      "sha256": "d7ef7c97d58e30e44731c00161e8566cd43baf79a9b1da7d8b07e64c60c9d446",
+      "matchesBundleAndApk": true,
+      "customerInformationClean": true
+    },
+    {
+      "asset": "help.html",
+      "sha256": "6ecc1053afe270fbf52fd56b3ca53e938cbdd22ed7587deec663289559cb967f",
+      "matchesBundleAndApk": true,
+      "customerInformationClean": true
+    },
+    {
+      "asset": "privacy.html",
+      "sha256": "b48e67a0bff7921c56b42bda427bc147eaf936dec258f0487f26f6257d322783",
+      "matchesBundleAndApk": true,
+      "customerInformationClean": true
+    }
+  ],
+  "aboutVersionFromBuildConfig": true,
+  "apk": {
+    "file": "MobileD_Android_2.0.16.apk",
+    "bytes": 47212482,
+    "sha256": "2b02db648d4638ad05f5c8f978dedbe53403a51115c361b5273de6ed84a73c9f",
+    "origin": "Universal APK generated from the unchanged Play bundle"
+  },
+  "aab": {
+    "file": "MobileD-2.0.16-29-play.aab",
+    "bytes": 47585503,
+    "sha256": "c5fcd5e2257d61608342b553e1876c9ff7821aed234e6f7d134e9b2cdea85a53"
+  },
+  "playConsole": {
+    "internalTest": "2.0.16 (29), observed in user screenshot",
+    "production": "2.0.7 (20), observed in user screenshot",
+    "submissionPerformedByAgent": false
+  },
+  "deviceTests": "User confirms tests; no new hardware test performed by agent",
+  "localInstallFromApk": "Blocked by signature mismatch with the Play-signed installed app; no uninstall performed",
+  "signing": "APK signed with local upload certificate; Play-signed app updates must use the Play testing channel",
+  "lint": {
+    "status": "passed",
+    "command": ":app:testDebugUnitTest :app:lintRelease --offline --no-daemon",
+    "counts": {
+      "Fatal": 0,
+      "Error": 0,
+      "Warning": 487,
+      "Information": 0
+    },
+    "gradleExitCode": 0
+  },
+  "signingCertificateSha256": "d55bb09f073053e2b54b211fc4a31a4a956be575f8bc82416418c083f58b2390",
+  "apkSignatureVerified": true,
+  "sourceFileCount": 307,
+  "sourceSnapshotSha256": "544df42497c30020283caa060a2b4d027b5ef46d0b90a4604b1c00948b539d98",
+  "sourceAndApkBehaviorChangedDuringAlignment": false,
+  "localApk15": "Archived under dist/archive/2.0.15",
+  "signingConfiguration": "gradle.properties retained locally; removed from current Git tree and replaced with a sanitized example. Existing historical commits are not rewritten."
+}

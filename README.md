@@ -2,21 +2,21 @@
 
 App Android nativa per controllo Color, Legacy, Matrix e Music dei dispositivi MobileD. Il progetto si può modificare e compilare da terminale; Android Studio è facoltativo.
 
-Release corrente: **2.0.15**, versionCode **28**. Le informazioni del menu e gli avvisi usano istruzioni pratiche per il cliente, senza dettagli interni di implementazione. Color, Legacy, Matrix e Music mantengono le loro funzioni.
+Release corrente: **2.0.16**, versionCode **29**, application ID `com.mobiled.android`, target e compile SDK 36. La variante debug usa `com.mobiled.android.test`. La 2.0.16 risulta pubblicata nei **test interni** di Google Play nello screenshot del proprietario del 27 ottobre 2026; la produzione mostra ancora la **2.0.7**, versionCode 20. L'utente conferma di aver testato le app. Queste conferme non equivalgono a una nuova prova hardware eseguita dall'assistente.
 
-Build release, **39 test JVM** e lint senza errori/fatal passano per la 2.0.15. I tre asset About, Help & Support e Terms and Conditions sono confrontati con quelli nell'APK e controllati per evitare dettagli riservati. About mantiene la versione automatica.
+Il bundle Play originale e conservato in `dist/google-play-2.0.16/MobileD-2.0.16-29-play.aab`. L'APK locale della stessa versione viene ricavato dal bundle, senza ricompilare o modificare la candidata gia caricata. Pacchetto corrente e report sono nella cartella `dist`; la precedente consegna 2.0.15 e in `dist/archive/2.0.15`.
 
-La 2.0.15 è installata sul telefono Xiaomi M2101K9AG / Android 13 senza cancellazione dati; hash della release installata, versione e avvio a freddo sono verificati. Non sono stati ripetuti test strumentali o prove fisiche delle luci per questa revisione dei testi; le 20 prove Android e la conferma dei dieci slot restano evidenze della 2.0.14.
+La candidata ha superato build del bundle firmato, 39 test JVM, lint release senza errori/fatal, validazione bundletool e verifica della firma. About, Help e Terms nel bundle e nell'APK corrispondono ai sorgenti. Il resoconto corrente e `docs/ANDROID_2.0.16_ALIGNMENT.md`.
 
 Il riferimento corrente è [MobileD_MobileApps_Functional_Reference_v1.8.md](MobileD_MobileApps_Functional_Reference_v1.8.md), disponibile anche in PDF. Include la correzione del contratto Legacy per Android 2.0.13 e PC 0.20.46 e la griglia Color di Android 2.0.14. Versioni storiche e checkpoint mobile precedenti sono conservati in `docs/archive`.
 
-## Informazioni nell'app: 2.0.15
+## Informazioni nell'app: 2.0.16
 
 About, Help & Support, Terms and Conditions e i messaggi dell'interfaccia devono descrivere le funzioni disponibili, i requisiti e le azioni da compiere con un linguaggio adatto all'utente. I dettagli interni della comunicazione tra app e dispositivi non appartengono a queste informazioni. La versione di About continua a provenire da `BuildConfig.VERSION_NAME`.
 
-La revisione mantiene le funzioni e i dieci slot colore. Build, test JVM, firma, asset informativi nell'APK e installazione sono verificati nei report della 2.0.15.
+La revisione mantiene le funzioni e i dieci slot colore. Build del bundle, test JVM, firma e asset informativi della 2.0.16 sono documentati nei report correnti. Le precedenti prove su telefono restano etichettate con la loro versione.
 
-I report in `dist` documentano la 2.0.15; la consegna 2.0.14 è archiviata localmente.
+I report correnti sono nella cartella `dist`; quelli della 2.0.15 sono conservati in `dist/archive/2.0.15`.
 
 ## Storico Color: dieci slot nella 2.0.14
 
@@ -32,9 +32,19 @@ Se è configurato un Master, Legacy usa la sincronizzazione: deve esserci un uni
 
 Help & Support descrive entrambe le modalità. Terms and Conditions e About sono stati ricontrollati; About continua a ricavare la versione da `BuildConfig.VERSION_NAME`. Gli esiti della 2.0.13 sono archiviati localmente prima del confezionamento della 2.0.14; le relative prove restano attribuite alla 2.0.13.
 
+## Firma e configurazione locale
+
+La configurazione effettiva `gradle.properties` rimane soltanto sul computer, insieme alla cartella `Keystore`. Per un nuovo clone, copiare `gradle.properties.example` in `gradle.properties` e compilare localmente percorso, alias e password. Non sovrascrivere un file locale gia configurato. Le password non devono essere incluse in commit, log o archivi distribuibili.
+
+La copia installata tramite Google Play e firmata con la chiave di firma dell'app gestita da Play. L'APK locale usa la chiave di caricamento del progetto e non puo aggiornare una copia Play con firma diversa. Per aggiornare una versione di test Play, utilizzare il relativo link del test interno.
+
+## Arresto della funzione Music
+
+Cambiare soltanto scheda o portare l'app in background mantiene Music attivo. Per interromperlo, impostare un colore dalla ruota Color o selezionare un altro effetto. Questo percorso arresta il registratore, rilascia MediaProjection e termina il servizio. La 2.0.16 non mostra un messaggio separato di arresto; nel video dimostrativo si puo lasciare la musica in riproduzione e mostrare le luci che passano a un colore fisso.
+
 ## Build locale
 
-La configurazione usa Gradle wrapper 8.13, Android Gradle Plugin 8.13.2, Kotlin 2.0.0 e Android SDK 34. minSdk è 26; la cattura playback Music richiede Android 10/API 29 o successivo, consenso MediaProjection e una sorgente che consenta la cattura.
+La configurazione usa Gradle wrapper 8.13, Android Gradle Plugin 8.13.2, Kotlin 2.0.0 e Android SDK 36. minSdk è 26; la cattura playback Music richiede Android 10/API 29 o successivo, consenso MediaProjection e una sorgente che consenta la cattura.
 
 Nel terminale PowerShell aperto nella cartella del progetto, usare un JDK 21 installato. Per l'ambiente locale corrente:
 
@@ -48,7 +58,7 @@ $env:PATH = (Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
 
 La verifica completa della consegna esegue `:app:testDebugUnitTest :app:assembleRelease :app:lintDebug`. Dopo una build finale riuscita, con lo snapshot dei sorgenti e il log registrati in `build/reports/alignment`, il comando `python .\scripts\package-android-release.py` verifica e prepara la cartella `dist`. Lo script controlla i test JVM attesi per Music e routing, l'assenza di errori/fatal nel lint finale, metadati della release, firma tramite apksigner SDK 34, permessi audio, servizio di cattura e risorse icona; arresta il confezionamento se una verifica fallisce. Non compila e non installa l'APK.
 
-Gli APK prodotti da Gradle si trovano in `app/build/outputs/apk/debug` e `app/build/outputs/apk/release`. L'applicationId è `com.mobiled.android.test`; una build non comporta l'installazione automatica su telefono.
+Gli APK prodotti da Gradle si trovano in `app/build/outputs/apk/debug` e `app/build/outputs/apk/release`. L'applicationId release e `com.mobiled.android`; solo il debug usa `com.mobiled.android.test`. Una build non comporta l'installazione automatica su telefono.
 
 ## Consegna e verifica
 
